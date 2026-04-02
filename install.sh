@@ -79,7 +79,7 @@ do_install() {
         name=$(basename "$f")
         cp "$f" "$AGENTS_DST/$name"
         log "agents/$name"
-        ((count++))
+        count=$((count + 1))
     done
 
     for f in "$COMMANDS_SRC"/*.md; do
@@ -88,7 +88,7 @@ do_install() {
         name=$(basename "$f")
         cp "$f" "$COMMANDS_DST/$name"
         log "commands/$name"
-        ((count++))
+        count=$((count + 1))
     done
 
     echo ""
@@ -172,7 +172,7 @@ do_pull() {
         name=$(basename "$f")
         cp "$f" "$AGENTS_SRC/$name"
         log "agents/$name ← installed"
-        ((count++))
+        count=$((count + 1))
     done
 
     for f in "$COMMANDS_DST"/*.md; do
@@ -181,7 +181,7 @@ do_pull() {
         name=$(basename "$f")
         cp "$f" "$COMMANDS_SRC/$name"
         log "commands/$name ← installed"
-        ((count++))
+        count=$((count + 1))
     done
 
     echo ""
