@@ -1,6 +1,6 @@
 # Claude Agents
 
-Multi-agent orchestration system for Claude Code. Transforms a single AI assistant into a coordinated development team with 8 specialist agents and 15 pipeline commands.
+Multi-agent orchestration system for Claude Code. Transforms a single AI assistant into a coordinated development team with 9 specialist agents and 15 pipeline commands.
 
 ## What This Is
 
@@ -32,7 +32,7 @@ Then open Claude Code in any project and use commands like `/next`, `/feature`, 
 | `/feature` | End-to-end feature development | pm + architect + reviewer + security + tester + docs |
 | `/fix` | Bug investigation and fix | reviewer + tester |
 | `/sprint` | Work through GitHub issues one by one | architect + reviewer + security + tester + dba* |
-| `/refactor` | Safe refactoring with verification gates | architect + reviewer + tester* |
+| `/refactor` | Safe refactoring with verification gates | refactorer + architect* + reviewer + tester* |
 | `/review` | Multi-agent code review | reviewer + security (parallel) |
 | `/test` | Test strategy, implementation, mutation testing | tester |
 | `/audit` | Full security audit with threat modeling | security + architect |
@@ -53,15 +53,16 @@ Then open Claude Code in any project and use commands like `/next`, `/feature`, 
 | reviewer | Code review, quality gates | sonnet |
 | security | Threat modeling, OWASP, vulnerability audit | opus |
 | tester | Test strategy and implementation | sonnet |
+| refactorer | Code smell detection, duplication, test quality | sonnet |
 | docs | API docs, ADRs, runbooks, changelogs | sonnet |
 
 ## Project Structure
 
 ```
 claude-agents/
-  agents/           8 specialist agent definitions
+  agents/           9 specialist agent definitions
   commands/         15 orchestration commands
-  research/         10 reference documents
+  research/         14 reference documents
   docs/             documentation
     commands.md     detailed command reference
     agents.md       detailed agent reference
@@ -116,3 +117,7 @@ The `research/` directory contains reference material used by agents:
 | 08 | API and system design patterns |
 | 09 | Mobile production best practices |
 | 10 | Documentation systems for AI agents |
+| 11 | Code smell detection and refactoring taxonomy |
+| 12 | Test refactoring and quality patterns |
+| 13 | Building an AI refactoring agent |
+| 14 | Architecture-level refactoring |

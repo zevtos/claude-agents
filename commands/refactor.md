@@ -1,5 +1,5 @@
 ---
-description: "Safe refactoring workflow with architecture review, implementation, and verification gates. Ensures refactors don't break existing behavior."
+description: "Safe refactoring workflow: detect smells → plan → characterization tests → refactor → verify. Ensures refactors don't break existing behavior."
 argument-hint: <what to refactor and why, or area of code>
 ---
 
@@ -13,36 +13,40 @@ $ARGUMENTS
 
 ## Pipeline
 
-### Step 1: Assess Scope
-Before any changes:
-1. Read the code to be refactored — understand ALL its responsibilities
-2. Map all callers/consumers (use Grep to find all references)
-3. Check test coverage — run existing tests, note what's covered and what's not
-4. Identify the risk: is this a leaf function or a core abstraction used everywhere?
+### Step 1: Detect — MANDATORY
+You MUST use the Agent tool with `subagent_type: "refactorer"` to run the refactorer agent. Do NOT skip this step.
 
-Present:
-- **Current state**: what the code does today and why it needs refactoring
-- **Scope**: exact files and functions affected
-- **Risk level**: LOW (leaf code, good tests) / MEDIUM (shared code, some tests) / HIGH (core abstraction, few tests)
-- **Proposed approach**: how to refactor safely
+Prompt for the refactorer agent:
+"Analyze this codebase for refactoring opportunities. Focus area: $ARGUMENTS
 
-Ask: "This is a [RISK] refactor. Proceed?"
+Scan for:
+1. Code duplication and clone groups
+2. Code smells (god functions, feature envy, primitive obsession, unnecessary complexity)
+3. Dead code and unreachable branches
+4. Single source of truth violations (constants/config defined in multiple places)
+5. Test suite problems (meaningless tests, duplicate patterns, missing factories)
+6. Scalability issues (adding a new type requires changes in 5+ files)
+
+Produce a prioritized findings report with specific file:line locations and fixes."
+
+Wait for the refactorer agent to complete. Present its findings to the user.
+
+Ask: "Found [count] findings ([high/medium/low breakdown]). This is a [RISK] refactor. Proceed with fixes?"
 
 ### Step 2: Safety Net (Tester Agent — if needed)
-If test coverage is insufficient for the refactored code, run the `tester` agent FIRST:
+If test coverage is insufficient for the refactored code, run the `tester` agent:
 "Write characterization tests for the following code BEFORE refactoring:
-[list files/functions being refactored]
+[list files/functions being refactored from refactorer findings]
 These tests must capture the CURRENT behavior exactly — they serve as a safety net.
 Focus on: all public API surfaces, edge cases, error paths."
 
 Run the characterization tests to verify they pass.
 
 ### Step 3: Architecture Review (Architect Agent — if structural)
-If the refactoring is structural (changing module boundaries, API contracts, data flow), run the `architect` agent:
+If the refactorer found structural issues (module boundaries, API contracts, decomposition), run the `architect` agent:
 "Review this refactoring plan:
 Goal: $ARGUMENTS
-Current structure: [describe]
-Proposed structure: [describe]
+Refactorer findings: [paste structural findings]
 
 Evaluate:
 - Is this the right decomposition?
@@ -51,11 +55,12 @@ Evaluate:
 - Any migration concerns?"
 
 ### Step 4: Implement
-Refactor in small, tested steps:
+Apply refactoring findings in priority order (high impact first), in small steps:
 1. Make one change at a time
 2. Run tests after EACH change
 3. If tests fail, revert the last change and investigate
-4. Keep commits atomic — each commit should be a standalone refactoring step that passes all tests
+4. Keep commits atomic — each commit is a standalone refactoring step that passes all tests
+5. Follow the refactorer's specific fix instructions for each finding
 
 ### Step 5: Review (Reviewer Agent)
 Run the `reviewer` agent:

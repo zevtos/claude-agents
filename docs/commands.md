@@ -102,17 +102,19 @@ Pipeline:
 ---
 
 ### `/refactor` — Safe Refactoring
-> Refactoring with architecture review and verification gates.
+> Detect smells, eliminate duplication, simplify tests, then verify.
 
 **Usage**: `/refactor <what to refactor and why>`
 
 Pipeline:
-1. Assess scope and test coverage
-2. Write characterization tests if coverage is insufficient
-3. **Architect agent** — review if structural change
-4. Implement with verification
+1. **Refactorer agent** (mandatory) — scan for code smells, duplication, dead code, test problems, scalability issues
+2. **Tester agent** — write characterization tests if coverage is insufficient
+3. **Architect agent** — review if structural changes are proposed
+4. Implement fixes in priority order (high impact first)
+5. **Reviewer agent** — verify behavior preservation
+6. Full test suite verification
 
-Ensures refactors don't break existing behavior.
+Ensures refactors don't break existing behavior. The refactorer agent detects problems; other agents provide safety nets.
 
 ---
 

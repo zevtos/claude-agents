@@ -15,6 +15,7 @@ Agents are specialist personas with bounded tool access. They are invoked by com
 | **reviewer** | Code review, quality gates | sonnet | Read, Grep, Glob, Bash |
 | **security** | Threat modeling, vulnerability audit | opus | Read, Grep, Glob, Bash |
 | **tester** | Test strategy, test implementation | sonnet | Read, Grep, Glob, Bash, Write, Edit |
+| **refactorer** | Code smells, duplication, test quality | sonnet | Read, Grep, Glob, Bash |
 | **docs** | API docs, ADRs, runbooks, changelogs | sonnet | Read, Write, Edit, Glob, Grep, Bash |
 
 ---
@@ -69,6 +70,13 @@ Security engineer for threat modeling and vulnerability analysis. Performs STRID
 Test engineer for comprehensive testing. Designs test strategy based on code type (unit for business logic, integration for APIs/DB, property-based for transformations, contract for integrations). Implements tests and validates with mutation testing.
 
 **Used by**: `/feature`, `/fix`, `/sprint`, `/test`, `/db`, `/refactor`*
+
+---
+
+### refactorer
+Refactoring engineer for code and test quality improvement. Detects code smells (god functions, feature envy, dead code, unnecessary complexity), finds duplication and single-source-of-truth violations, analyzes test suites for meaningless tests and missing factories, and suggests scalability patterns that make future extension easier.
+
+**Used by**: `/refactor`
 
 ---
 

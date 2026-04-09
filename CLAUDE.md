@@ -1,6 +1,6 @@
 # claude-agents
 
-Multi-agent orchestration for Claude Code. 8 agents, 15 commands, 10 research docs.
+Multi-agent orchestration for Claude Code. 9 agents, 15 commands, 14 research docs.
 Installed globally to ~/.claude/ — not a runtime application. No build, no tests, no dependencies.
 
 ## Commands
@@ -30,7 +30,7 @@ CHANGELOG.md        Keep a Changelog format
 YAML frontmatter then markdown body. Exact fields:
 
 ```
-name:         lowercase identifier (architect, dba, devops, docs, pm, reviewer, security, tester)
+name:         lowercase identifier (architect, dba, devops, docs, pm, refactorer, reviewer, security, tester)
 description:  trigger sentence with "MUST BE USED when/before..." conditions
 tools:        comma-separated allowlist from: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch
 model:        opus (for architect, security) or sonnet (all others)
