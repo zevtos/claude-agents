@@ -12,7 +12,7 @@
 ```bash
 git clone https://github.com/zevtos/claude-agents.git claude-agents
 cd claude-agents
-./install.sh
+bash install.sh
 ```
 
 ### Windows (PowerShell)
@@ -51,7 +51,7 @@ Pull the latest changes and re-run the installer:
 ```bash
 cd claude-agents
 git pull
-./install.sh
+bash install.sh
 ```
 
 The installer overwrites existing files — your installed agents and commands will match the repo.

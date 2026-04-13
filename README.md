@@ -15,7 +15,7 @@ A set of installable agents and commands that add structured development workflo
 ```bash
 git clone https://github.com/zevtos/claude-agents.git claude-agents
 cd claude-agents
-./install.sh        # macOS/Linux/WSL
+bash install.sh     # macOS/Linux/WSL
 # or
 .\install.ps1       # Windows PowerShell
 ```
