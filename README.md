@@ -1,36 +1,77 @@
-# agentpipe
+<p align="center">
+  <img src="assets/logo.svg" width="180" alt="agentpipe">
+</p>
 
-Gated pipeline orchestration for **Claude Code** and **Codex CLI** — specialist agents, slash commands, and skills installed globally. Unlike "config sync" tools, agentpipe gives you ready-made multi-agent workflows: `/feature` runs `pm → architect → reviewer → security → tester → docs` as a gated pipeline, `/sprint` works through GitHub issues one at a time, `/audit` runs threat modeling. Multi-vendor: same skills work in both Claude and Codex.
+<h1 align="center">agentpipe</h1>
 
-## What This Is
+<p align="center">
+  <strong>Gated pipeline orchestration for Claude Code and Codex CLI.</strong><br>
+  9 specialist agents, 15 multi-agent workflows, multi-vendor skills — installed globally in 30 seconds.
+</p>
 
-Three kinds of installable extensions, plus reference material:
+<p align="center">
+  <a href="https://github.com/zevtos/agentpipe/releases"><img src="https://img.shields.io/github/v/release/zevtos/agentpipe?label=release&style=flat-square" alt="release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/zevtos/agentpipe?style=flat-square" alt="license"></a>
+  <a href="https://github.com/zevtos/agentpipe/stargazers"><img src="https://img.shields.io/github/stars/zevtos/agentpipe?style=flat-square" alt="stars"></a>
+  <a href="https://github.com/zevtos/agentpipe/releases"><img src="https://img.shields.io/github/downloads/zevtos/agentpipe/total?style=flat-square" alt="downloads"></a>
+  <img src="https://img.shields.io/badge/Claude%20Code-supported-7C3AED?style=flat-square" alt="Claude Code">
+  <img src="https://img.shields.io/badge/Codex%20CLI-supported-10A37F?style=flat-square" alt="Codex CLI">
+</p>
 
-- **Agents** — specialist personas (architect, DBA, security engineer, etc.) with bounded tool access
-- **Commands** — orchestration pipelines (`/feature`, `/sprint`, `/deploy`, etc.) that coordinate agents through gated workflows
-- **Skills** — domain capabilities Claude invokes automatically (e.g. generating ITMO/GOST academic reports as `.docx`)
-- **Research** — reference documents on security, testing, observability, and API design
-
-## Quick Start
+---
 
 ```bash
-git clone https://github.com/zevtos/agentpipe.git
-cd agentpipe
-
-# Claude Code (default target) — installs agents + commands + skills to ~/.claude/
-bash install.sh
-
-# Codex CLI — installs skills only to ~/.agents/skills/
-bash install.sh --target codex
-
-# Windows PowerShell
-.\install.ps1                   # Claude Code
-.\install.ps1 -Target codex     # Codex CLI
+git clone https://github.com/zevtos/agentpipe.git && cd agentpipe
+bash install.sh                 # Claude Code (default)
+bash install.sh --target codex  # Codex CLI (skills only)
 ```
 
-For Claude Code, then use commands like `/next`, `/feature`, `/review`, or just describe a task that matches a skill (e.g. «сделай лабораторную ИТМО по теме X»). For Codex, invoke skills via `$gost-report` (or let Codex pick by description). See [Codex support](#codex-support) below.
+Then in Claude Code:
 
-## Commands
+```
+$ /feature "add OAuth login"
+
+  pm        →  spec + acceptance criteria
+  architect →  API design + ADR
+  implement →  code
+  reviewer  →  quality gate
+  security  →  threat model (parallel with reviewer)
+  tester    →  test suite
+  docs      →  API.md update
+```
+
+Each `→` is a gated handoff: the next agent runs only if the previous one passed. Conditional steps (e.g. `dba` only fires when migrations changed). Parallel where it makes sense (`reviewer` + `security` together).
+
+## Why agentpipe
+
+Vanilla Claude Code already ships agents, commands, and skills — but they're **meta-utilities** (help you use Claude Code itself: explore code, configure the status line, plan a task). agentpipe adds **domain-specialist** agents and **end-user workflow** commands on top:
+
+| | Vanilla Claude Code | + agentpipe |
+|---|---|---|
+| Agents | meta/utility (`general-purpose`, `Explore`, `Plan`, `claude-code-guide`, `statusline-setup`) — generic helpers | **9 domain specialists** with role-bounded tool access (architect, dba, devops, docs, pm, refactorer, reviewer, security, tester) — e.g. reviewer = Read+Grep only, can't accidentally edit |
+| Slash commands | session/config (`/init`, `/clear`, `/agents`, `/mcp`, `/model`, `/config`, ...) | **15 gated multi-agent workflows** (`/feature`, `/sprint`, `/audit`, `/release`, `/refactor`, ...) with conditional steps and parallel gates |
+| Skills | dev-tooling utilities (`claude-api`, `loop`, `schedule`, `update-config`, ...) — for power-users of Claude Code | **end-user domain skills** (`gost-report` for Russian academic .docx — more on the way) |
+| Per-agent model selection | global / manual | **auto** — opus for high-reasoning roles (architect, security), sonnet for the rest |
+| Multi-vendor distribution | Claude Code only | **same skills** in Codex CLI via `bash install.sh --target codex` |
+| Skill release packaging | n/a (manual) | `bash scripts/build-skills.sh` + GH Actions auto-attaches zips on tag push |
+
+## What's Inside
+
+### Agents
+
+| Agent | Domain | Model |
+|-------|--------|-------|
+| architect | System design, API contracts, ADRs | opus |
+| pm | Requirements, specs, acceptance criteria | sonnet |
+| dba | Schema design, migrations, query optimization | sonnet |
+| devops | CI/CD, Docker, observability, deployment | sonnet |
+| reviewer | Code review, quality gates | sonnet |
+| security | Threat modeling, OWASP, vulnerability audit | opus |
+| tester | Test strategy and implementation | sonnet |
+| refactorer | Code smell detection, duplication, test quality | sonnet |
+| docs | API docs, ADRs, runbooks, changelogs | sonnet |
+
+### Commands
 
 | Command | Purpose | Agents Used |
 |---------|---------|-------------|
@@ -50,21 +91,9 @@ For Claude Code, then use commands like `/next`, `/feature`, `/review`, or just 
 | `/docs` | Generate/update project documentation | docs |
 | `/onboard` | Understand a new codebase | (exploration only) |
 
-## Agents
+\* conditional — only fires when relevant (e.g. `dba` only when migrations changed)
 
-| Agent | Domain | Model |
-|-------|--------|-------|
-| architect | System design, API contracts, ADRs | opus |
-| pm | Requirements, specs, acceptance criteria | sonnet |
-| dba | Schema design, migrations, query optimization | sonnet |
-| devops | CI/CD, Docker, observability, deployment | sonnet |
-| reviewer | Code review, quality gates | sonnet |
-| security | Threat modeling, OWASP, vulnerability audit | opus |
-| tester | Test strategy and implementation | sonnet |
-| refactorer | Code smell detection, duplication, test quality | sonnet |
-| docs | API docs, ADRs, runbooks, changelogs | sonnet |
-
-## Skills
+### Skills
 
 | Skill | Purpose | Triggers on |
 |-------|---------|-------------|
@@ -72,41 +101,10 @@ For Claude Code, then use commands like `/next`, `/feature`, `/review`, or just 
 
 Each release attaches every skill as a standalone `.zip` to the GitHub release page. Two install paths depending on where you use Claude:
 
-- **Claude Code (CLI)** — `unzip gost-report.zip -d ~/.claude/skills/` (or `bash install.sh` from a clone of the repo)
+- **Claude Code (CLI)** — `unzip gost-report.zip -d ~/.claude/skills/` (or `bash install.sh` from a clone)
 - **Claude Chat (claude.ai)** — open any chat, go to **Customize → Skills → Add → Create skill → Upload a skill**, and pick the zip. The skill becomes globally available across all your conversations.
 
 Adding your university? Build a `UniversityProfile` and PR it back.
-
-## Project Structure
-
-```
-agentpipe/
-  agents/                9 specialist agent definitions
-  commands/              15 orchestration commands
-  skills/                Domain-specific Claude skills (folders with SKILL.md + assets)
-  research/              14 reference documents
-  scripts/               build-skills.sh / .ps1 — package skills into release zips
-  .github/workflows/     release.yml — auto-attaches skill zips to GH releases on tag push
-  docs/                  documentation (commands.md, agents.md, installation.md)
-  install.sh             bash installer (macOS/Linux/WSL)
-  install.ps1            PowerShell installer (Windows)
-```
-
-## Documentation
-
-- [Commands Reference](docs/commands.md) — detailed usage for each command
-- [Agents Reference](docs/agents.md) — agent capabilities and responsibilities
-- [Installation Guide](docs/installation.md) — install, update, and customize
-
-## How It Works
-
-Commands are gated pipelines. For example, `/feature` runs:
-
-```
-PM agent (spec) -> Architect agent (design) -> Implement -> Reviewer agent -> Tester agent -> Docs agent
-```
-
-Each gate must pass before proceeding. Agents have bounded tool access (reviewer can read and grep but not write). Critical agents (architect, security) run on opus; others run on sonnet. Agents marked with * in the table above are conditional (e.g., dba runs only when schema changes are detected).
 
 ## Codex Support
 
@@ -127,6 +125,31 @@ If you use both clients, run the installer twice — once per target. The two in
 - Codex agents are single TOML files in `~/.codex/agents/` with fields like `developer_instructions`, `model`, `sandbox_mode` — not Markdown with YAML frontmatter. Auto-translating Claude's prompts to that format is a planned future feature; for now, treat the agent files as reference and write equivalent TOML by hand if needed.
 - Codex CLI has no analogue to Claude's custom slash commands — Codex equivalent of «my workflow» is a skill. The user invokes it via `$skill-name`. Many of this repo's commands (`/next`, `/feature`, etc.) could become Codex skills in a future release.
 
+## Project Structure
+
+```
+agentpipe/
+  agents/                9 specialist agent definitions
+  commands/              15 orchestration commands
+  skills/                Domain-specific skills (folders with SKILL.md + assets)
+  research/              14 reference documents
+  scripts/               build-skills.sh / .ps1 — package skills into release zips
+  .github/workflows/     release.yml — auto-attaches skill zips to GH releases on tag push
+  docs/                  documentation (commands.md, agents.md, installation.md)
+  install.sh             bash installer (macOS/Linux/WSL)
+  install.ps1            PowerShell installer (Windows)
+```
+
+## How It Works
+
+Commands are gated pipelines. For example, `/feature` runs:
+
+```
+PM (spec) → Architect (design) → Implement → Reviewer (gate) → Tester → Docs
+```
+
+Each gate must pass before proceeding. Agents have bounded tool access (reviewer can read and grep but not write). Critical agents (architect, security) run on opus; others run on sonnet. Conditional agents (marked `*` in the commands table) only fire when relevant (e.g. `dba` runs only when schema changes are detected).
+
 ## Customization
 
 - **Project-level overrides**:
@@ -138,19 +161,26 @@ If you use both clients, run the installer twice — once per target. The two in
 ## Building Release Archives
 
 ```bash
-bash scripts/build-skills.sh           # zips every skills/<name>/ into dist/<name>.zip
-bash scripts/build-skills.sh itmo-report   # build a single skill
+bash scripts/build-skills.sh             # zips every skills/<name>/ into dist/<name>.zip
+bash scripts/build-skills.sh gost-report # build a single skill
 ```
 
 On `git push --tags vX.Y.Z`, the `release.yml` workflow runs the same script and attaches the zips to the GitHub release. Tag must match `VERSION` exactly.
 
+## Documentation
+
+- [Commands Reference](docs/commands.md) — detailed usage for each command
+- [Agents Reference](docs/agents.md) — agent capabilities and responsibilities
+- [Installation Guide](docs/installation.md) — install, update, and customize
+
 ## Contributing
 
-Contributions welcome — new agents, commands, and improvements to existing ones. Open an issue or submit a PR.
+Contributions welcome — new agents, commands, skills, and improvements to existing ones. Open an issue or submit a PR.
 
 ## License
 
-[MIT](LICENSE)
+- Repo (agents, commands, installer, docs): [MIT](LICENSE)
+- Each skill carries its own license file inside `skills/<name>/LICENSE`. The `gost-report` skill is also [MIT](skills/gost-report/LICENSE) — required so the bundled `.zip` ships with a license when distributed standalone via Claude Chat or Claude Code.
 
 ## Research Documents
 
