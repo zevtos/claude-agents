@@ -74,12 +74,9 @@ Commands that run agents in parallel: review (reviewer + security), feature step
 
 ## Skill Format (skills/<name>/)
 
-Each skill is its own folder under `skills/`. Required: `SKILL.md` at the folder root with YAML frontmatter:
-
-```
-name:         lowercase-with-hyphens, must match the folder name
-description:  trigger sentence — what the skill does and when Claude should invoke it
-```
+Each skill is its own folder under `skills/`. Required files at the folder root:
+- `SKILL.md` — YAML frontmatter (`name` matching folder, `description` trigger sentence) + body
+- `LICENSE` — every skill ships its own license so the standalone `.zip` is legally usable when uploaded to Claude Chat or extracted into `~/.claude/skills/`. Default is MIT (matches repo top-level)
 
 Optional folders inside the skill:
 - `scripts/`    — supporting code (Python, Bash, etc.) the skill calls or references
@@ -90,6 +87,7 @@ Body structure of `SKILL.md`:
 - `## When to use` — concrete triggers, examples in user's language if domain-specific
 - `## How to use` — minimal example + API reference
 - `## Dependencies` — pip/system packages needed
+- `## License` — one-line pointer to the `LICENSE` file
 - `## Checklist` (optional) — final verification steps before delivering output
 
 Skills are installed as folders to `~/.claude/skills/<name>/` and discovered by Claude through their description. Don't add new top-level frontmatter fields — Claude Code ignores them silently.
@@ -104,7 +102,7 @@ Skills are installed as folders to `~/.claude/skills/<name>/` and discovered by 
 - VERSION file: single line, semver, no v prefix. Installers and the release workflow read it at runtime.
 - CHANGELOG.md: Keep a Changelog format. Update on every release.
 - Agent descriptions are triggers, not summaries. Write for the model to understand WHEN to fire.
-- Skill descriptions follow the same trigger principle and may include foreign-language keywords if the skill is domain-specific (see skills/itmo-report).
+- Skill descriptions follow the same trigger principle and may include foreign-language keywords if the skill is domain-specific (see skills/gost-report).
 - No @-importing files in agent bodies — bloats every session.
 - Model assignment: opus for high-reasoning roles (architect, security). sonnet for everything else.
 - Research docs are reference material. Agents do not auto-import them.
@@ -144,10 +142,11 @@ Skills are installed as folders to `~/.claude/skills/<name>/` and discovered by 
 
 1. Create `skills/<name>/SKILL.md` with frontmatter: `name` (must equal the folder name) and `description` (trigger sentence)
 2. Body explains *when* the skill applies, then *how* to use it (minimal example + API reference)
-3. Optional: `skills/<name>/scripts/` for supporting code, `skills/<name>/references/` for long-form docs
-4. Update README.md skills table, docs/skills.md (if present), and CHANGELOG.md
-5. Run `bash install.sh` to deploy locally, then test by invoking the skill in a real project
-6. Run `bash scripts/build-skills.sh` to verify the release archive builds cleanly
+3. Add `skills/<name>/LICENSE` (MIT by default — copy from `skills/gost-report/LICENSE` and update the year/owner)
+4. Optional: `skills/<name>/scripts/` for supporting code, `skills/<name>/references/` for long-form docs
+5. Update README.md skills table and CHANGELOG.md
+6. Run `bash install.sh` to deploy locally, then test by invoking the skill in a real project
+7. Run `bash scripts/build-skills.sh` to verify the release archive builds cleanly and includes LICENSE
 
 ## Contributing
 

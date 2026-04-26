@@ -140,6 +140,10 @@ Content methods (call in order):
 - `python-docx` (pip install python-docx)
 - Optional: `Pillow` if the user provides images that need preprocessing.
 
+## License
+
+MIT — see `LICENSE` next to this file.
+
 ## Checklist after generating
 
 Before delivering the file, verify:

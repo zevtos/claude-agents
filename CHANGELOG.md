@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-26
+
+### Added
+- **`skills/gost-report/LICENSE`** (MIT) — every skill now ships its own license so the standalone `.zip` is legally distributable when uploaded to Claude Chat or extracted into `~/.claude/skills/`. Same MIT terms as the repo top-level.
+- `CLAUDE.md` updated: skill folders must include `LICENSE`; documented in `Skill Format` and `Adding a New Skill`.
+- `SKILL.md` for `gost-report` now has a `## License` section.
+
 ## [0.3.0] - 2026-04-26
 
 ### Added
