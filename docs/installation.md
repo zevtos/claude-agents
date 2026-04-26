@@ -39,13 +39,23 @@ On WSL, files are installed to the Windows-side Claude config directory automati
 
 ### Installing a Skill from a Release Zip
 
-If you don't want to clone the repo, every release attaches each skill as `<skill>.zip` to the GitHub release page. Extract directly into your skills directory:
+Every release attaches each skill as `<skill>.zip` to the GitHub release page. There are two install paths depending on where you use Claude:
+
+**Claude Code (CLI)** — extract into your skills directory:
 
 ```bash
-unzip ~/Downloads/itmo-report.zip -d ~/.claude/skills/
+unzip ~/Downloads/gost-report.zip -d ~/.claude/skills/
 ```
 
-The zip already contains the `<skill>/` folder at the top level, so it lands at `~/.claude/skills/<skill>/`.
+The zip already contains the `<skill>/` folder at the top level, so it lands at `~/.claude/skills/<skill>/`. The full installer (`bash install.sh`) does the same thing for every skill in this repo.
+
+**Claude Chat (claude.ai)** — the CLI path doesn't apply; skills must be uploaded through the web UI:
+
+1. Open any conversation on claude.ai
+2. **Customize → Skills → Add → Create skill → Upload a skill**
+3. Select the `<skill>.zip` you downloaded from the release page
+
+The skill becomes globally available across all your conversations on that account.
 
 ## Installer Options
 

@@ -63,7 +63,12 @@ Then open Claude Code in any project and use commands like `/next`, `/feature`, 
 |-------|---------|-------------|
 | `gost-report` | Generate Russian academic reports (`.docx`) formatted to GOST 7.32 — лабораторные, отчёты по практике, курсовые, ВКР. Two built-in profiles (`ITMO_PROFILE`, `GOST_PROFILE`) plus `UniversityProfile` for any other vuz. | Russian-language asks for «лабораторную», «отчёт по ГОСТ», «курсовую», «ИТМО», etc. |
 
-Each release attaches every skill as a standalone `.zip` to the GitHub release page — drop it into `~/.claude/skills/` to install without cloning the repo. Adding your university? Build a `UniversityProfile` and PR it back.
+Each release attaches every skill as a standalone `.zip` to the GitHub release page. Two install paths depending on where you use Claude:
+
+- **Claude Code (CLI)** — `unzip gost-report.zip -d ~/.claude/skills/` (or `bash install.sh` from a clone of the repo)
+- **Claude Chat (claude.ai)** — open any chat, go to **Customize → Skills → Add → Create skill → Upload a skill**, and pick the zip. The skill becomes globally available across all your conversations.
+
+Adding your university? Build a `UniversityProfile` and PR it back.
 
 ## Project Structure
 
