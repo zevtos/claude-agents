@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-04-26
+
+### Added
+- **`gost-report`: hard writing-style rule for prose.** New `## Writing style — обязательно соблюдать` section in `SKILL.md` makes the model write report body text in a natural Russian voice instead of the typical AI register: no em-dashes, no «ёлочки», no канцеляризмы («в ходе выполнения работы», «является», «данный», etc.), varied sentence rhythm. Scoped to prose only — auto-generated captions (`Рисунок N — Описание`) and canonical structural headings (`Введение`, `Заключение`) are explicitly exempt because they're library-formatted per GOST.
+
 ## [0.4.2] - 2026-04-26
 
 ### Fixed
