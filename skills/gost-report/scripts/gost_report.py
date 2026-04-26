@@ -599,7 +599,33 @@ class Report:
 
     def figure(self, image_path: str, caption: str, *,
                width_cm: Optional[float] = None):
+        """Вставляет рисунок с автоматической подписью.
+
+        Ширина картинки **всегда** ограничивается печатной областью страницы
+        (A4 минус левое и правое поля активного профиля — обычно ~17 см для
+        ITMO и ~16.5 см для GOST). Если width_cm не задан, используется
+        натуральный размер картинки (с клампом к печатной области, если она
+        больше). Если width_cm задан — он уважается, но также клампится.
+        Это предотвращает вылет крупных скриншотов за поля.
+        """
         self._figure_counter += 1
+
+        # Печатная область: 210 мм (A4) − левое поле − правое поле, в см
+        max_width_cm = (210
+                        - self._profile.body_margin_left
+                        - self._profile.body_margin_right) / 10.0
+
+        if width_cm is None:
+            # Прочитать натуральные размеры через python-docx (без PIL-зависимости)
+            from docx.image.image import Image as _DocxImage
+            img_meta = _DocxImage.from_file(image_path)
+            natural_width_cm = img_meta.px_width / img_meta.horz_dpi * 2.54
+            if natural_width_cm > max_width_cm:
+                width_cm = max_width_cm
+            # else: натуральный размер влезает, оставляем width_cm=None
+        elif width_cm > max_width_cm:
+            width_cm = max_width_cm
+
         p = self._doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         pf = p.paragraph_format

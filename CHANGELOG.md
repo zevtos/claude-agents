@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-26
+
+### Fixed
+- **`gost-report`: large screenshots no longer overflow page margins.** `figure()` now clamps the image width to the printable area (A4 width minus left+right body margins from the active profile — typically ~17 cm for ITMO, ~16.5 cm for GOST). Previously, calling `figure(path, caption)` without `width_cm` used the image's native dimensions, which for typical screenshots (1300-2500 px @ 144 DPI = 23-43 cm) extended past the right margin and into the page edge in Word. Verified end-to-end on real lab screenshots (Cisco Packet Tracer captures); images now fit cleanly. Explicitly set `width_cm` is also clamped as a safety net.
+- No PIL/Pillow dependency added — image natural size is read via `docx.image.image.Image.from_file`, which python-docx already ships.
+
 ## [0.4.1] - 2026-04-26
 
 ### Changed
