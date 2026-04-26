@@ -16,12 +16,19 @@ Three kinds of installable extensions, plus reference material:
 ```bash
 git clone https://github.com/zevtos/claude-agents.git claude-agents
 cd claude-agents
-bash install.sh     # macOS/Linux/WSL
-# or
-.\install.ps1       # Windows PowerShell
+
+# Claude Code (default target) — installs agents + commands + skills to ~/.claude/
+bash install.sh
+
+# Codex CLI — installs skills only to ~/.agents/skills/
+bash install.sh --target codex
+
+# Windows PowerShell
+.\install.ps1                   # Claude Code
+.\install.ps1 -Target codex     # Codex CLI
 ```
 
-Then open Claude Code in any project and use commands like `/next`, `/feature`, `/review`, or just describe a task that matches a skill (e.g. «сделай лабораторную ИТМО по теме X»).
+For Claude Code, then use commands like `/next`, `/feature`, `/review`, or just describe a task that matches a skill (e.g. «сделай лабораторную ИТМО по теме X»). For Codex, invoke skills via `$gost-report` (or let Codex pick by description). See [Codex support](#codex-support) below.
 
 ## Commands
 
@@ -101,10 +108,31 @@ PM agent (spec) -> Architect agent (design) -> Implement -> Reviewer agent -> Te
 
 Each gate must pass before proceeding. Agents have bounded tool access (reviewer can read and grep but not write). Critical agents (architect, security) run on opus; others run on sonnet. Agents marked with * in the table above are conditional (e.g., dba runs only when schema changes are detected).
 
+## Codex Support
+
+Codex CLI shares the open-agent-skills format with Claude, so the same `gost-report` skill folder works in both. The installer's `--target codex` flag puts skills in `~/.agents/skills/` (Codex's standard path — note: not `~/.codex/skills/`).
+
+What gets installed per target:
+
+| | Claude Code (`--target claude`, default) | Codex CLI (`--target codex`) |
+|---|---|---|
+| Skills (`skills/*/`) | `~/.claude/skills/` | `~/.agents/skills/` |
+| Agents (`agents/*.md`) | `~/.claude/agents/` | skipped (Codex agents use TOML, different format) |
+| Slash commands (`commands/*.md`) | `~/.claude/commands/` | skipped (Codex CLI has no custom slash commands) |
+
+If you use both clients, run the installer twice — once per target. The two install paths don't conflict.
+
+**Why are agents and commands skipped for Codex?**
+
+- Codex agents are single TOML files in `~/.codex/agents/` with fields like `developer_instructions`, `model`, `sandbox_mode` — not Markdown with YAML frontmatter. Auto-translating Claude's prompts to that format is a planned future feature; for now, treat the agent files as reference and write equivalent TOML by hand if needed.
+- Codex CLI has no analogue to Claude's custom slash commands — Codex equivalent of «my workflow» is a skill. The user invokes it via `$skill-name`. Many of this repo's commands (`/next`, `/feature`, etc.) could become Codex skills in a future release.
+
 ## Customization
 
-- **Project-level overrides**: add `.claude/agents/`, `.claude/commands/`, or `.claude/skills/` in your project
-- **Edit globals**: modify files under `~/.claude/agents/`, `~/.claude/commands/`, `~/.claude/skills/` directly
+- **Project-level overrides**:
+  - Claude: `.claude/agents/`, `.claude/commands/`, `.claude/skills/` in your project
+  - Codex: `.agents/skills/` in your project (or `.codex/agents/` for TOML agents)
+- **Edit globals**: modify the installed files directly under the target directory
 - **Fork**: fork this repo, customize, install from your fork
 
 ## Building Release Archives

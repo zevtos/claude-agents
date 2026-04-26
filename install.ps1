@@ -1,18 +1,23 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Claude Code Agent Team — Install Script (Windows PowerShell)
+    claude-agents — Install Script (Windows PowerShell)
 .DESCRIPTION
-    Copies agents and commands from this repo to ~/.claude/
+    Copies agents, commands, and skills from this repo to ~/.claude/ (Claude Code, default)
+    or ~/.agents/skills/ (Codex CLI, with -Target codex; agents and commands are skipped
+    because Codex agents use a different TOML format and Codex CLI has no custom slash commands).
 .EXAMPLE
-    .\install.ps1              # install
-    .\install.ps1 -Dry         # show what would be copied
-    .\install.ps1 -Diff        # show differences
-    .\install.ps1 -Pull        # pull installed versions back to repo
-    .\install.ps1 -Uninstall   # remove installed agents and commands
-    .\install.ps1 -Version     # show version
+    .\install.ps1                        # install for Claude Code (default)
+    .\install.ps1 -Target codex          # install for Codex CLI (skills only)
+    .\install.ps1 -Dry                   # preview what would be copied
+    .\install.ps1 -Diff                  # show repo vs installed differences
+    .\install.ps1 -Pull                  # copy installed back to repo
+    .\install.ps1 -Uninstall             # remove installed files
+    .\install.ps1 -ShowVersion           # show version
 #>
 param(
+    [ValidateSet("claude", "codex")]
+    [string]$Target = "claude",
     [switch]$Dry,
     [switch]$Diff,
     [switch]$Pull,
@@ -26,125 +31,200 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $VersionFile = Join-Path $ScriptDir "VERSION"
 $Script:Version = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { "unknown" }
+
 $AgentsSrc = Join-Path $ScriptDir "agents"
 $CommandsSrc = Join-Path $ScriptDir "commands"
+$SkillsSrc = Join-Path $ScriptDir "skills"
 
-$ClaudeHome = Join-Path $env:USERPROFILE ".claude"
-$AgentsDst = Join-Path $ClaudeHome "agents"
-$CommandsDst = Join-Path $ClaudeHome "commands"
+# Resolve destinations from target. Codex skills go to ~/.agents/skills/ (open-agent-skills
+# standard), NOT ~/.codex/skills/. ~/.codex/ holds config and TOML agents.
+switch ($Target) {
+    "claude" {
+        $Base = Join-Path $env:USERPROFILE ".claude"
+        $AgentsDst   = Join-Path $Base "agents"
+        $CommandsDst = Join-Path $Base "commands"
+        $SkillsDst   = Join-Path $Base "skills"
+    }
+    "codex" {
+        $Base = Join-Path $env:USERPROFILE ".agents"
+        $AgentsDst   = $null
+        $CommandsDst = $null
+        $SkillsDst   = Join-Path $Base "skills"
+    }
+}
 
-function Write-Ok($msg) { Write-Host "  $msg" -ForegroundColor Green }
+function Write-Ok($msg)   { Write-Host "  $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "  $msg" -ForegroundColor Yellow }
 function Write-Info($msg) { Write-Host "  $msg" -ForegroundColor Cyan }
-function Write-Err($msg) { Write-Host "  $msg" -ForegroundColor Red }
+function Write-Err($msg)  { Write-Host "  $msg" -ForegroundColor Red }
+
+function Show-CodexSkipNotice {
+    if ($Target -eq "codex") {
+        Write-Warn "Codex CLI has no custom slash commands - skipped commands/"
+        Write-Warn "Codex agents use a different TOML format - skipped agents/. See README for details."
+    }
+}
 
 function Do-Install {
-    Write-Info "Installing claude-agents v$($Script:Version) to: $ClaudeHome"
-
-    New-Item -ItemType Directory -Path $AgentsDst -Force | Out-Null
-    New-Item -ItemType Directory -Path $CommandsDst -Force | Out-Null
-
+    Write-Info "Installing claude-agents v$($Script:Version) (target: $Target) to: $Base"
     $count = 0
 
-    Get-ChildItem "$AgentsSrc\*.md" | ForEach-Object {
-        Copy-Item $_.FullName -Destination (Join-Path $AgentsDst $_.Name) -Force
-        Write-Ok "agents/$($_.Name)"
-        $count++
+    if ($AgentsDst) {
+        New-Item -ItemType Directory -Path $AgentsDst -Force | Out-Null
+        Get-ChildItem "$AgentsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName -Destination (Join-Path $AgentsDst $_.Name) -Force
+            Write-Ok "agents/$($_.Name)"
+            $count++
+        }
     }
 
-    Get-ChildItem "$CommandsSrc\*.md" | ForEach-Object {
-        Copy-Item $_.FullName -Destination (Join-Path $CommandsDst $_.Name) -Force
-        Write-Ok "commands/$($_.Name)"
-        $count++
+    if ($CommandsDst) {
+        New-Item -ItemType Directory -Path $CommandsDst -Force | Out-Null
+        Get-ChildItem "$CommandsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName -Destination (Join-Path $CommandsDst $_.Name) -Force
+            Write-Ok "commands/$($_.Name)"
+            $count++
+        }
+    }
+
+    if ($SkillsDst -and (Test-Path $SkillsSrc)) {
+        New-Item -ItemType Directory -Path $SkillsDst -Force | Out-Null
+        Get-ChildItem $SkillsSrc -Directory | ForEach-Object {
+            $dst = Join-Path $SkillsDst $_.Name
+            if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
+            Copy-Item $_.FullName -Destination $dst -Recurse -Force
+            Write-Ok "skills/$($_.Name)/"
+            $count++
+        }
     }
 
     Write-Host ""
-    Write-Info "Installed $count files to $ClaudeHome"
+    Write-Info "Installed $count items to $Base"
+    Show-CodexSkipNotice
     Write-Ok "claude-agents v$($Script:Version)"
 }
 
 function Do-Uninstall {
-    Write-Info "Uninstalling claude-agents from: $ClaudeHome"
+    Write-Info "Uninstalling claude-agents from: $Base (target: $Target)"
     $count = 0
 
-    Get-ChildItem "$AgentsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-        $dst = Join-Path $AgentsDst $_.Name
-        if (Test-Path $dst) {
-            Remove-Item $dst
-            Write-Ok "removed agents/$($_.Name)"
-            $count++
+    if ($AgentsDst) {
+        Get-ChildItem "$AgentsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            $dst = Join-Path $AgentsDst $_.Name
+            if (Test-Path $dst) {
+                Remove-Item $dst
+                Write-Ok "removed agents/$($_.Name)"
+                $count++
+            }
         }
     }
 
-    Get-ChildItem "$CommandsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-        $dst = Join-Path $CommandsDst $_.Name
-        if (Test-Path $dst) {
-            Remove-Item $dst
-            Write-Ok "removed commands/$($_.Name)"
-            $count++
+    if ($CommandsDst) {
+        Get-ChildItem "$CommandsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            $dst = Join-Path $CommandsDst $_.Name
+            if (Test-Path $dst) {
+                Remove-Item $dst
+                Write-Ok "removed commands/$($_.Name)"
+                $count++
+            }
         }
     }
 
-    # Remove directories only if empty
-    if ((Test-Path $AgentsDst) -and @(Get-ChildItem $AgentsDst).Count -eq 0) {
-        Remove-Item $AgentsDst
-        Write-Ok "removed agents/"
+    if ($SkillsDst -and (Test-Path $SkillsSrc)) {
+        Get-ChildItem $SkillsSrc -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $dst = Join-Path $SkillsDst $_.Name
+            if (Test-Path $dst) {
+                Remove-Item $dst -Recurse -Force
+                Write-Ok "removed skills/$($_.Name)/"
+                $count++
+            }
+        }
     }
-    if ((Test-Path $CommandsDst) -and @(Get-ChildItem $CommandsDst).Count -eq 0) {
-        Remove-Item $CommandsDst
-        Write-Ok "removed commands/"
+
+    foreach ($d in @($AgentsDst, $CommandsDst, $SkillsDst)) {
+        if ($d -and (Test-Path $d) -and (@(Get-ChildItem $d).Count -eq 0)) {
+            Remove-Item $d
+            Write-Ok "removed $((Split-Path $d -Leaf))/"
+        }
     }
 
     Write-Host ""
-    Write-Info "Removed $count files from $ClaudeHome"
+    Write-Info "Removed $count items from $Base"
 }
 
 function Do-Dry {
-    Write-Info "Dry run — would install to: $ClaudeHome"
+    Write-Info "Dry run (target: $Target) - would install to: $Base"
     Write-Host ""
 
-    Write-Host "Agents:"
-    Get-ChildItem "$AgentsSrc\*.md" | ForEach-Object {
-        $dst = Join-Path $AgentsDst $_.Name
-        if (Test-Path $dst) {
-            $srcHash = (Get-FileHash $_.FullName).Hash
-            $dstHash = (Get-FileHash $dst).Hash
-            if ($srcHash -eq $dstHash) {
-                Write-Host "  = $($_.Name) (identical)"
+    if ($AgentsDst) {
+        Write-Host "Agents:"
+        Get-ChildItem "$AgentsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            $dst = Join-Path $AgentsDst $_.Name
+            if (Test-Path $dst) {
+                $srcHash = (Get-FileHash $_.FullName).Hash
+                $dstHash = (Get-FileHash $dst).Hash
+                if ($srcHash -eq $dstHash) {
+                    Write-Host "  = $($_.Name) (identical)"
+                } else {
+                    Write-Warn "~ $($_.Name) (CHANGED)"
+                }
             } else {
-                Write-Warn "~ $($_.Name) (CHANGED)"
+                Write-Info "+ $($_.Name) (NEW)"
             }
-        } else {
-            Write-Info "+ $($_.Name) (NEW)"
+        }
+        Write-Host ""
+    }
+
+    if ($CommandsDst) {
+        Write-Host "Commands:"
+        Get-ChildItem "$CommandsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            $dst = Join-Path $CommandsDst $_.Name
+            if (Test-Path $dst) {
+                $srcHash = (Get-FileHash $_.FullName).Hash
+                $dstHash = (Get-FileHash $dst).Hash
+                if ($srcHash -eq $dstHash) {
+                    Write-Host "  = $($_.Name) (identical)"
+                } else {
+                    Write-Warn "~ $($_.Name) (CHANGED)"
+                }
+            } else {
+                Write-Info "+ $($_.Name) (NEW)"
+            }
+        }
+        Write-Host ""
+    }
+
+    if ($SkillsDst -and (Test-Path $SkillsSrc)) {
+        Write-Host "Skills:"
+        Get-ChildItem $SkillsSrc -Directory | ForEach-Object {
+            $dst = Join-Path $SkillsDst $_.Name
+            if (Test-Path $dst) {
+                # Hash-based folder comparison: concatenate file hashes
+                $srcFiles = Get-ChildItem $_.FullName -Recurse -File | Sort-Object FullName
+                $dstFiles = Get-ChildItem $dst -Recurse -File | Sort-Object FullName
+                $srcSig = ($srcFiles | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ""
+                $dstSig = ($dstFiles | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ""
+                if ($srcSig -eq $dstSig -and $srcFiles.Count -eq $dstFiles.Count) {
+                    Write-Host "  = $($_.Name)/ (identical)"
+                } else {
+                    Write-Warn "~ $($_.Name)/ (CHANGED)"
+                }
+            } else {
+                Write-Info "+ $($_.Name)/ (NEW)"
+            }
         }
     }
 
-    Write-Host ""
-    Write-Host "Commands:"
-    Get-ChildItem "$CommandsSrc\*.md" | ForEach-Object {
-        $dst = Join-Path $CommandsDst $_.Name
-        if (Test-Path $dst) {
-            $srcHash = (Get-FileHash $_.FullName).Hash
-            $dstHash = (Get-FileHash $dst).Hash
-            if ($srcHash -eq $dstHash) {
-                Write-Host "  = $($_.Name) (identical)"
-            } else {
-                Write-Warn "~ $($_.Name) (CHANGED)"
-            }
-        } else {
-            Write-Info "+ $($_.Name) (NEW)"
-        }
-    }
+    Show-CodexSkipNotice
 }
 
 function Do-Diff {
-    Write-Info "Comparing repo <-> installed ($ClaudeHome)"
+    Write-Info "Comparing repo <-> installed at $Base (target: $Target)"
     $hasDiff = $false
 
-    $pairs = @(
-        @{ Label = "agents"; Src = $AgentsSrc; Dst = $AgentsDst },
-        @{ Label = "commands"; Src = $CommandsSrc; Dst = $CommandsDst }
-    )
+    $pairs = @()
+    if ($AgentsDst)   { $pairs += @{ Label = "agents"; Src = $AgentsSrc; Dst = $AgentsDst } }
+    if ($CommandsDst) { $pairs += @{ Label = "commands"; Src = $CommandsSrc; Dst = $CommandsDst } }
 
     foreach ($pair in $pairs) {
         Get-ChildItem "$($pair.Src)\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
@@ -157,7 +237,26 @@ function Do-Diff {
                     $hasDiff = $true
                 }
             } else {
-                Write-Warn "$($pair.Label)/$($_.Name) — not installed"
+                Write-Warn "$($pair.Label)/$($_.Name) - not installed"
+                $hasDiff = $true
+            }
+        }
+    }
+
+    if ($SkillsDst -and (Test-Path $SkillsSrc)) {
+        Get-ChildItem $SkillsSrc -Directory | ForEach-Object {
+            $dst = Join-Path $SkillsDst $_.Name
+            if (Test-Path $dst) {
+                $srcFiles = Get-ChildItem $_.FullName -Recurse -File | Sort-Object FullName
+                $dstFiles = Get-ChildItem $dst -Recurse -File | Sort-Object FullName
+                $srcSig = ($srcFiles | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ""
+                $dstSig = ($dstFiles | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ""
+                if ($srcSig -ne $dstSig -or $srcFiles.Count -ne $dstFiles.Count) {
+                    Write-Warn "skills/$($_.Name)/ differs"
+                    $hasDiff = $true
+                }
+            } else {
+                Write-Warn "skills/$($_.Name)/ - not installed"
                 $hasDiff = $true
             }
         }
@@ -169,23 +268,40 @@ function Do-Diff {
 }
 
 function Do-Pull {
-    Write-Info "Pulling installed versions back to repo"
+    Write-Info "Pulling installed versions back to repo (target: $Target)"
     $count = 0
 
-    Get-ChildItem "$AgentsDst\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-        Copy-Item $_.FullName -Destination (Join-Path $AgentsSrc $_.Name) -Force
-        Write-Ok "agents/$($_.Name) <- installed"
-        $count++
+    if ($AgentsDst -and (Test-Path $AgentsDst)) {
+        Get-ChildItem "$AgentsDst\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName -Destination (Join-Path $AgentsSrc $_.Name) -Force
+            Write-Ok "agents/$($_.Name) <- installed"
+            $count++
+        }
     }
 
-    Get-ChildItem "$CommandsDst\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-        Copy-Item $_.FullName -Destination (Join-Path $CommandsSrc $_.Name) -Force
-        Write-Ok "commands/$($_.Name) <- installed"
-        $count++
+    if ($CommandsDst -and (Test-Path $CommandsDst)) {
+        Get-ChildItem "$CommandsDst\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName -Destination (Join-Path $CommandsSrc $_.Name) -Force
+            Write-Ok "commands/$($_.Name) <- installed"
+            $count++
+        }
+    }
+
+    if ($SkillsDst -and (Test-Path $SkillsSrc)) {
+        Get-ChildItem $SkillsSrc -Directory | ForEach-Object {
+            $dst = Join-Path $SkillsDst $_.Name
+            if (Test-Path $dst) {
+                $repoCopy = Join-Path $SkillsSrc $_.Name
+                if (Test-Path $repoCopy) { Remove-Item $repoCopy -Recurse -Force }
+                Copy-Item $dst -Destination $repoCopy -Recurse -Force
+                Write-Ok "skills/$($_.Name)/ <- installed"
+                $count++
+            }
+        }
     }
 
     Write-Host ""
-    Write-Info "Pulled $count files into repo"
+    Write-Info "Pulled $count items into repo"
 }
 
 # Main

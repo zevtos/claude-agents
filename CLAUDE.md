@@ -1,17 +1,21 @@
 # claude-agents
 
-Comprehensive Claude Code configuration: agents, slash commands, and skills.
-9 agents, 15 commands, 1 skill (`gost-report`), 14 research docs. Installed globally to `~/.claude/`.
+Comprehensive Claude Code + Codex configuration: agents, slash commands, and skills.
+9 agents, 15 commands, 1 skill (`gost-report`), 14 research docs. Multi-target installer:
+default puts everything in `~/.claude/`; `--target codex` puts skills in `~/.agents/skills/`
+(open-agent-skills standard) and skips agents/commands (Codex format differences).
 The only build step is packaging skills into release zips — no runtime, no tests, no dependencies.
 
 ## Commands
 
 ```
-bash install.sh                 # install agents + commands + skills to ~/.claude/
-bash install.sh --dry           # preview what would change
-bash install.sh --diff          # show repo vs installed differences
-bash install.sh --pull          # copy installed back to repo
-bash scripts/build-skills.sh    # package every skills/<name>/ into dist/<name>.zip
+bash install.sh                       # install for Claude Code (default)
+bash install.sh --target codex        # install for Codex CLI (skills only)
+bash install.sh --dry                 # preview what would change (works with --target too)
+bash install.sh --diff                # show repo vs installed differences
+bash install.sh --pull                # copy installed back to repo
+bash install.sh --uninstall           # remove installed files (target-scoped)
+bash scripts/build-skills.sh          # package every skills/<name>/ into dist/<name>.zip
 ```
 
 ## Structure
@@ -98,6 +102,7 @@ Skills are installed as folders to `~/.claude/skills/<name>/` and discovered by 
 - Branch strategy for this repo: main only. (Commands like /sprint auto-detect the repository's default branch.)
 - Agents and commands are .md files. Skills are folders with SKILL.md plus optional scripts/references. No code generation, no templates.
 - Installer must stay POSIX-safe: `set -euo pipefail`, no bashisms beyond what install.sh already uses.
+- Installer must keep both `install.sh` and `install.ps1` in sync: same flags, same `--target` set, same skip-rules per target. When adding a new target, update the `case "$TARGET"` block in install.sh AND the `switch ($Target)` in install.ps1, plus the `[ValidateSet(...)]` attribute and the README target table.
 - Arithmetic: use `$((count + 1))` not `((count++))`. The latter exits non-zero on zero under set -e.
 - VERSION file: single line, semver, no v prefix. Installers and the release workflow read it at runtime.
 - CHANGELOG.md: Keep a Changelog format. Update on every release.

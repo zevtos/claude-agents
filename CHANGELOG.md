@@ -7,6 +7,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-26
+
+### Added
+- **Codex CLI support** — installer accepts `--target codex` (Bash) / `-Target codex` (PowerShell). Skills go to `~/.agents/skills/` (open-agent-skills standard, NOT `~/.codex/skills/`). Default target is still `claude` so existing workflows are unaffected.
+- All installer actions (`install`, `--dry`, `--diff`, `--pull`, `--uninstall`) respect `--target`.
+- README has a new "Codex Support" section with the per-target install matrix and rationale for skipping agents/commands in Codex mode.
+- `CLAUDE.md` documents the multi-target architecture and the rule to keep both installers in sync.
+
+### Changed
+- `install.sh` rewritten with proper argument-loop parsing instead of single-flag dispatch.
+- `install.ps1` rewritten with `-Target` parameter, `[ValidateSet("claude","codex")]` validation, and full skills support (the latter was missing in v0.3.x — bug fix).
+
+### Notes
+- Codex agents (TOML format in `~/.codex/agents/`) and Codex's lack of custom slash commands mean those Claude assets are intentionally skipped under `--target codex`. Auto-translating agents to TOML is a planned future feature.
+
 ## [0.3.1] - 2026-04-26
 
 ### Added

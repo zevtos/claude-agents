@@ -25,17 +25,31 @@ cd claude-agents
 
 ### What Gets Installed
 
-The installer copies agents, commands, and skills to your Claude Code config directory:
+The installer supports two targets via `--target`:
+
+**`--target claude`** (default) — copies agents, commands, and skills to your Claude Code config directory:
 
 ```
 ~/.claude/
   agents/                 <- 9 specialist agents (.md files)
   commands/               <- 15 orchestration commands (.md files)
   skills/                 <- skill folders (each contains SKILL.md + optional scripts/references)
-    itmo-report/
+    gost-report/
 ```
 
-On WSL, files are installed to the Windows-side Claude config directory automatically.
+**`--target codex`** — copies skills to Codex's open-agent-skills directory:
+
+```
+~/.agents/
+  skills/                 <- skill folders (same format as Claude)
+    gost-report/
+```
+
+For Codex, agents and commands are intentionally skipped: Codex agents use a different TOML format (live in `~/.codex/agents/`), and Codex CLI has no custom slash commands. Both will be revisited in future releases.
+
+If you use both clients, run the installer twice — once per target. The install paths don't conflict.
+
+On WSL, files are installed to the Windows-side directory automatically.
 
 ### Installing a Skill from a Release Zip
 
@@ -61,10 +75,20 @@ The skill becomes globally available across all your conversations on that accou
 
 | Flag | Bash | PowerShell | Description |
 |------|------|------------|-------------|
+| Target | `--target <name>` | `-Target <name>` | Install for `claude` (default) or `codex` |
 | Dry run | `--dry` | `-Dry` | Show what would be copied without copying |
 | Diff | `--diff` | `-Diff` | Show differences between repo and installed files |
 | Pull | `--pull` | `-Pull` | Copy installed files back to repo (reverse sync) |
+| Uninstall | `--uninstall` | `-Uninstall` | Remove installed files (respects `--target`) |
 | Help | `--help` | `-Help` | Show usage information |
+
+All actions respect `--target`. Examples:
+
+```bash
+bash install.sh --target codex --dry        # preview Codex install
+bash install.sh --target codex --uninstall  # remove only Codex skills
+bash install.sh --diff                      # diff Claude install (default target)
+```
 
 ## Updating
 
