@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-04-27
+
+### Changed
+- **`gost-report` SKILL.md compacted from ~270 to ~140 lines.** Detail-heavy sections (alternate university profiles, full LaTeX subset, typical content patterns by work type, behaviour notes, extended TitleConfig docs) moved into `references/*.md` — loaded on demand by the agent rather than always-resident. The `⛔ Правило №1` (no em-dashes) and `Writing style` blocks stay in SKILL.md verbatim because they govern every line of generated prose. Net effect: agent invocations carry ~50% less skill context, with the same enforcement on writing rules.
+- New reference docs: `references/profiles.md` (UniversityProfile fields, GOST/ITMO presets, custom profile examples), `references/formulas.md` (full LaTeX subset, edge cases, sanitizer vs LaTeX, debugging), `references/patterns.md` (content structure for лаб/ВКР/курсовых/практик/ДЗ), `references/api.md` (TitleConfig fields, behaviour notes — TOC field, list restart, no quotes around topic, image clamping, sanitizer semantics).
+
 ## [0.5.0] - 2026-04-27
 
 ### Added
