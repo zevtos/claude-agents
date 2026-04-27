@@ -12,6 +12,7 @@
     .\install.ps1 -Dry                   # preview what would be copied
     .\install.ps1 -Diff                  # show repo vs installed differences
     .\install.ps1 -Pull                  # copy installed back to repo
+    .\install.ps1 -Update                # git pull --ff-only, then install
     .\install.ps1 -Uninstall             # remove installed files
     .\install.ps1 -ShowVersion           # show version
 #>
@@ -21,6 +22,7 @@ param(
     [switch]$Dry,
     [switch]$Diff,
     [switch]$Pull,
+    [switch]$Update,
     [switch]$Uninstall,
     [switch]$ShowVersion,
     [switch]$Help
@@ -271,6 +273,46 @@ function Do-Diff {
     }
 }
 
+function Do-Update {
+    Write-Info "Updating agentpipe from remote, then installing..."
+
+    Push-Location $ScriptDir
+    try {
+        & git rev-parse --is-inside-work-tree 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "$ScriptDir is not a git repository - can't pull."
+            Write-Err "Re-clone the repo or download a fresh release zip."
+            exit 1
+        }
+
+        $status = & git status --porcelain
+        if ($status) {
+            Write-Err "Working tree has uncommitted changes. Stash or commit them, then re-run."
+            & git status --short
+            exit 1
+        }
+
+        Write-Info "git pull --ff-only"
+        & git pull --ff-only
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "git pull --ff-only failed (probably divergent history)."
+            Write-Err "Resolve manually (rebase / merge / reset --hard origin/main) and re-run."
+            exit 1
+        }
+
+        # VERSION may have changed in the pulled commits.
+        $Script:Version = if (Test-Path (Join-Path $ScriptDir "VERSION")) {
+            (Get-Content (Join-Path $ScriptDir "VERSION") -Raw).Trim()
+        } else { "unknown" }
+    }
+    finally {
+        Pop-Location
+    }
+
+    Write-Host ""
+    Do-Install
+}
+
 function Do-Pull {
     Write-Info "Pulling installed versions back to repo (target: $Target)"
     $count = 0
@@ -324,5 +366,6 @@ if ($ShowVersion) {
 if ($Dry) { Do-Dry }
 elseif ($Diff) { Do-Diff }
 elseif ($Pull) { Do-Pull }
+elseif ($Update) { Do-Update }
 elseif ($Uninstall) { Do-Uninstall }
 else { Do-Install }

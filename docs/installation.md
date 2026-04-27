@@ -79,6 +79,7 @@ The skill becomes globally available across all your conversations on that accou
 | Dry run | `--dry` | `-Dry` | Show what would be copied without copying |
 | Diff | `--diff` | `-Diff` | Show differences between repo and installed files |
 | Pull | `--pull` | `-Pull` | Copy installed files back to repo (reverse sync) |
+| Update | `--update` | `-Update` | `git pull --ff-only` then install (one-shot upgrade) |
 | Uninstall | `--uninstall` | `-Uninstall` | Remove installed files (respects `--target`) |
 | Help | `--help` | `-Help` | Show usage information |
 
@@ -92,7 +93,17 @@ bash install.sh --diff                      # diff Claude install (default targe
 
 ## Updating
 
-Pull the latest changes and re-run the installer:
+One-shot upgrade (pulls latest from remote, then installs):
+
+```bash
+cd agentpipe
+bash install.sh --update     # bash on macOS/Linux/WSL/Git Bash
+.\install.ps1 -Update        # PowerShell on Windows
+```
+
+`--update` runs `git pull --ff-only` first; if your working tree has uncommitted changes or the remote has diverged, it stops with a clear error so nothing is clobbered. Equivalent to `git pull && bash install.sh` when both succeed.
+
+If you prefer the manual flow:
 
 ```bash
 cd agentpipe

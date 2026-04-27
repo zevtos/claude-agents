@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-04-27
+
+### Added
+- **One-shot installer upgrade: `bash install.sh --update` (Bash) / `.\install.ps1 -Update` (PowerShell).** Runs `git pull --ff-only` against the cloned repo and then re-installs. Refuses to run if the working tree has uncommitted changes (lists them and exits) or if the remote has diverged (asks the user to resolve manually). Equivalent to the previous two-step `git pull && bash install.sh` but in one command. Help text and `docs/installation.md` updated accordingly.
+
 ## [0.5.1] - 2026-04-27
 
 ### Changed

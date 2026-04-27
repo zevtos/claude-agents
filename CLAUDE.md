@@ -14,6 +14,7 @@ bash install.sh --target codex        # install for Codex CLI (skills only)
 bash install.sh --dry                 # preview what would change (works with --target too)
 bash install.sh --diff                # show repo vs installed differences
 bash install.sh --pull                # copy installed back to repo
+bash install.sh --update              # git pull --ff-only, then install (one-shot upgrade)
 bash install.sh --uninstall           # remove installed files (target-scoped)
 bash scripts/build-skills.sh          # package every skills/<name>/ into dist/<name>.zip
 ```

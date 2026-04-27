@@ -88,6 +88,7 @@ while [[ $# -gt 0 ]]; do
         --dry)       ACTION="dry"; shift ;;
         --diff)      ACTION="diff"; shift ;;
         --pull)      ACTION="pull"; shift ;;
+        --update)    ACTION="update"; shift ;;
         --uninstall) ACTION="uninstall"; shift ;;
         --version|-v)
             echo "agentpipe v$VERSION"
@@ -97,7 +98,7 @@ while [[ $# -gt 0 ]]; do
             cat <<EOF
 agentpipe v$VERSION
 
-Usage: bash install.sh [--target <name>] [--dry|--diff|--pull|--uninstall]
+Usage: bash install.sh [--target <name>] [--dry|--diff|--pull|--update|--uninstall]
        bash install.sh --version
 
 Targets:
@@ -111,6 +112,7 @@ Actions:
   --dry         Show what would be copied
   --diff        Show differences between repo and installed
   --pull        Copy installed versions back to repo
+  --update      git pull --ff-only, then install (one-shot upgrade to latest)
   --uninstall   Remove installed files
   --version     Show version
 EOF
@@ -441,6 +443,36 @@ do_pull() {
     info "Pulled $count items into repo"
 }
 
+do_update() {
+    info "Updating agentpipe from remote, then installing..."
+
+    if ! git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        err "$SCRIPT_DIR is not a git repository — can't pull."
+        err "Re-clone the repo or download a fresh release zip."
+        exit 1
+    fi
+
+    # Untracked or modified files would block --ff-only or get clobbered.
+    if [[ -n "$(git -C "$SCRIPT_DIR" status --porcelain)" ]]; then
+        err "Working tree has uncommitted changes. Stash or commit them, then re-run."
+        git -C "$SCRIPT_DIR" status --short
+        exit 1
+    fi
+
+    info "git pull --ff-only"
+    if ! git -C "$SCRIPT_DIR" pull --ff-only; then
+        err "git pull --ff-only failed (probably divergent history)."
+        err "Resolve manually (rebase / merge / reset --hard origin/main) and re-run."
+        exit 1
+    fi
+
+    # VERSION may have changed in the pulled commits.
+    VERSION=$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "unknown")
+
+    echo ""
+    do_install
+}
+
 # --- Main ---
 
 case "$ACTION" in
@@ -448,5 +480,6 @@ case "$ACTION" in
     dry)       do_dry ;;
     diff)      do_diff ;;
     pull)      do_pull ;;
+    update)    do_update ;;
     uninstall) do_uninstall ;;
 esac
