@@ -7,6 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-27
+
+### Added
+- **Local eval framework for agent prompts: `scripts/eval.sh` + `tests/` + `docs/eval.md`.** Runs agent under test in `claude -p` headless mode (using the user's Claude Code OAuth — no API key required), then runs an LLM-as-judge step against a written rubric. Costs ~2 subscription messages per scenario. Designed for hand-iteration on agent prompts; **not wired to CI** by design, to avoid burning quota on every PR.
+- Layout: `tests/<agent>/<scenario>/input.md` (what's sent to the agent) and `rubric.md` (what the judge checks against). After a run, the same folder gets `last_output.md` and `last_verdict.json` (gitignored — local debug artifacts).
+- Runner CLI: `bash scripts/eval.sh --list` discovers scenarios and prints a cost estimate without making any calls; `bash scripts/eval.sh <agent>` runs all scenarios for one agent; `bash scripts/eval.sh <agent> <scenario>` runs exactly one. Returns non-zero exit code if any scenario fails (so it's still scriptable manually).
+- `tests/` ships empty on purpose — real scenarios should be sourced from open-source datasets (OWASP/CWE, real PR comments, postmortems) and thoughtfully designed per agent, not bulk-generated. `tests/README.md` documents the format; `docs/eval.md` is the full guide with a worked SQL-injection example end-to-end.
+
+### Changed
+- README structure block now lists `tests/` and `scripts/eval.sh`; the Documentation section links to `docs/eval.md`.
+- CLAUDE.md commands list and structure block updated with the new eval entries.
+- `.gitignore` adds `tests/*/*/last_output.md` and `tests/*/*/last_verdict.json` so local eval artifacts don't pollute git status.
+
 ## [0.5.2] - 2026-04-27
 
 ### Added

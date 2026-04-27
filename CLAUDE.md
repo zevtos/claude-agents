@@ -17,6 +17,8 @@ bash install.sh --pull                # copy installed back to repo
 bash install.sh --update              # git pull --ff-only, then install (one-shot upgrade)
 bash install.sh --uninstall           # remove installed files (target-scoped)
 bash scripts/build-skills.sh          # package every skills/<name>/ into dist/<name>.zip
+bash scripts/eval.sh --list           # list local agent eval scenarios (no claude calls)
+bash scripts/eval.sh <agent>          # run agent prompt-quality eval (uses claude -p, ~2 msgs/scenario)
 ```
 
 ## Structure
@@ -26,8 +28,10 @@ agents/*.md             Agent definitions — YAML frontmatter + system prompt
 commands/*.md           Slash commands — YAML frontmatter + orchestration pipeline
 skills/<name>/SKILL.md  Skills — folder with SKILL.md plus optional scripts/, references/
 research/*.md           Reference docs, numbered 01-14. Not auto-imported by agents.
-docs/                   User-facing documentation (commands.md, agents.md, installation.md)
+docs/                   User-facing documentation (commands.md, agents.md, installation.md, eval.md)
 scripts/build-skills.*  Package skills/* into dist/*.zip for releases
+scripts/eval.sh         Local prompt-quality eval runner (claude -p, no API key, no CI)
+tests/<agent>/<scenario>/  Agent eval scenarios (input.md + rubric.md). Empty by default.
 .github/workflows/      release.yml: on tag push, builds skill zips and attaches to GH release
 install.sh              Bash installer (macOS, Linux, WSL, Git Bash)
 install.ps1             PowerShell installer (Windows)

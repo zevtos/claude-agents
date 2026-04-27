@@ -133,9 +133,10 @@ agentpipe/
   commands/              15 orchestration commands
   skills/                Domain-specific skills (folders with SKILL.md + assets)
   research/              14 reference documents
-  scripts/               build-skills.sh / .ps1 — package skills into release zips
+  tests/                 Agent eval scenarios — empty by default, see docs/eval.md
+  scripts/               build-skills.sh, eval.sh
   .github/workflows/     release.yml — auto-attaches skill zips to GH releases on tag push
-  docs/                  documentation (commands.md, agents.md, installation.md)
+  docs/                  documentation (commands.md, agents.md, installation.md, eval.md)
   install.sh             bash installer (macOS/Linux/WSL)
   install.ps1            PowerShell installer (Windows)
 ```
@@ -172,6 +173,7 @@ On `git push --tags vX.Y.Z`, the `release.yml` workflow runs the same script and
 - [Commands Reference](docs/commands.md) — detailed usage for each command
 - [Agents Reference](docs/agents.md) — agent capabilities and responsibilities
 - [Installation Guide](docs/installation.md) — install, update, and customize
+- [Eval Framework](docs/eval.md) — local prompt-quality testing for agents
 
 ## Contributing
 
