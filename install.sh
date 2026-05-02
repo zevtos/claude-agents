@@ -28,6 +28,7 @@ COMMANDS_SRC="$SCRIPT_DIR/commands"
 SKILLS_SRC="$SCRIPT_DIR/skills"
 HOOK_SRC="$SCRIPT_DIR/scripts/git-hooks/commit-msg"
 JSON_MERGE="$SCRIPT_DIR/scripts/json-merge.py"
+CLAUDE_MD_SRC="$SCRIPT_DIR/scripts/CLAUDE.md.example"
 GIT_TEMPLATE_DIR="$HOME/.git-templates"
 GIT_HOOK_DST="$GIT_TEMPLATE_DIR/hooks/commit-msg"
 
@@ -88,6 +89,9 @@ TARGET="claude"
 ACTION="install"
 ATTRIBUTION_FIX=1
 CONFIG_DEFAULTS=1
+CLAUDE_MD=1
+SOUND_HOOKS=0
+THINKING_SUMMARIES=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -100,6 +104,9 @@ while [[ $# -gt 0 ]]; do
         --uninstall) ACTION="uninstall"; shift ;;
         --no-attribution-fix) ATTRIBUTION_FIX=0; shift ;;
         --no-config-defaults) CONFIG_DEFAULTS=0; shift ;;
+        --no-claude-md) CLAUDE_MD=0; shift ;;
+        --with-sound-hooks) SOUND_HOOKS=1; shift ;;
+        --with-thinking-summaries) THINKING_SUMMARIES=1; shift ;;
         --version|-v)
             echo "agentpipe v$VERSION"
             exit 0
@@ -127,11 +134,20 @@ Actions:
   --version     Show version
 
 Options:
-  --no-attribution-fix  Skip Co-Authored-By suppression (settings keys + git hook).
-                        On by default for --target claude. Always off for codex.
-  --no-config-defaults  Skip safe-defaults layer ($schema URL for IDE autocomplete
-                        + permissions.deny for .env / *.pem / *.key / secrets/**).
-                        On by default for --target claude. Always off for codex.
+  --no-attribution-fix      Skip Co-Authored-By suppression (settings keys + git hook).
+                            On by default for --target claude. Always off for codex.
+  --no-config-defaults      Skip safe-defaults layer (\$schema URL, autoUpdatesChannel=stable,
+                            cleanupPeriodDays=180, spinnerTipsEnabled=false, permissions.deny
+                            for secrets and destructive Bash patterns).
+                            On by default for --target claude. Always off for codex.
+  --no-claude-md            Don't install ~/.claude/CLAUDE.md.example baseline.
+                            Default: install only if ~/.claude/CLAUDE.md does not exist
+                            (never overwrites). Always off for codex.
+  --with-sound-hooks        Add Stop+Notification sound hooks (afplay/paplay/powershell beep).
+                            OS auto-detected. Off by default — personal preference.
+                            Always off for codex.
+  --with-thinking-summaries Set showThinkingSummaries=true. Off by default — some users
+                            find the thinking output noisy. Always off for codex.
 EOF
             exit 0
             ;;
@@ -318,7 +334,20 @@ config_defaults_active() {
 }
 
 CONFIG_SCHEMA_URL='https://json.schemastore.org/claude-code-settings.json'
-CONFIG_DENY_LIST='["Read(./.env)","Read(./.env.*)","Read(./**/secrets/**)","Read(./**/*.pem)","Read(./**/*.key)"]'
+# permissions.deny: secrets + universally-destructive Bash patterns.
+# Set-union with user entries (--list-union) so we don't clobber.
+CONFIG_DENY_LIST='[
+  "Read(./.env)",
+  "Read(./.env.*)",
+  "Read(./**/secrets/**)",
+  "Read(./**/*.pem)",
+  "Read(./**/*.key)",
+  "Bash(rm -rf /*)",
+  "Bash(rm -rf ~/*)",
+  "Bash(rm -rf $HOME/*)",
+  "Bash(mkfs *)",
+  "Bash(dd * of=/dev/*)"
+]'
 
 do_config_defaults() {
     config_defaults_active || return 0
@@ -329,10 +358,24 @@ do_config_defaults() {
         return 0
     fi
 
+    # Top-level keys: $schema + autoUpdatesChannel (skip beta) +
+    # cleanupPeriodDays (180 vs default 30) + spinnerTipsEnabled false.
+    # Plus permissions.deny set-union via json-merge --list-union.
     local payload
-    payload=$(printf '{"$schema": "%s", "permissions": {"deny": %s}}' "$CONFIG_SCHEMA_URL" "$CONFIG_DENY_LIST")
+    payload=$(cat <<JSON
+{
+  "\$schema": "$CONFIG_SCHEMA_URL",
+  "autoUpdatesChannel": "stable",
+  "cleanupPeriodDays": 180,
+  "spinnerTipsEnabled": false,
+  "permissions": {
+    "deny": $CONFIG_DENY_LIST
+  }
+}
+JSON
+)
     if python3 "$JSON_MERGE" --list-union permissions.deny "$settings" "$payload" 2>/dev/null; then
-        log "settings/\$schema + permissions.deny (secrets) merged"
+        log "settings/config-defaults merged (\$schema + autoUpdatesChannel + cleanupPeriodDays + spinnerTipsEnabled + permissions.deny)"
     else
         warn "settings.json config-defaults merge failed — leaving file untouched"
     fi
@@ -340,7 +383,132 @@ do_config_defaults() {
 
 do_config_defaults_unfix() {
     config_defaults_active || return 0
-    info "note: \$schema + permissions.deny left as-is — edit settings.json to revert"
+    info "note: config-defaults keys left as-is — edit settings.json to revert"
+}
+
+# --- CLAUDE.md baseline (claude target only, install-if-missing) ---
+# Copies a neutral baseline to ~/.claude/CLAUDE.md ONLY if no file exists.
+# Never overwrites — user's existing rules are sacred.
+
+claude_md_active() {
+    [[ "$TARGET" == "claude" && "$CLAUDE_MD" -eq 1 ]]
+}
+
+do_claude_md() {
+    claude_md_active || return 0
+    local dst="$BASE/CLAUDE.md"
+    if [[ -f "$dst" ]]; then
+        log "claude-md/CLAUDE.md already exists — not overwriting"
+    else
+        mkdir -p "$BASE"
+        cp "$CLAUDE_MD_SRC" "$dst"
+        log "claude-md/CLAUDE.md installed (neutral baseline) → $dst"
+    fi
+}
+
+do_claude_md_dry() {
+    claude_md_active || return 0
+    echo "Claude.md baseline:"
+    local dst="$BASE/CLAUDE.md"
+    if [[ -f "$dst" ]]; then
+        echo "  = CLAUDE.md (already exists, will not overwrite)"
+    else
+        info "  + CLAUDE.md (neutral baseline, install-if-missing)"
+    fi
+    echo ""
+}
+
+# --- Sound hooks (claude target only, opt-in) ---
+# Stop + Notification audible cues. OS auto-detected.
+
+sound_hooks_active() {
+    [[ "$TARGET" == "claude" && "$SOUND_HOOKS" -eq 1 ]]
+}
+
+# Returns the OS-appropriate sound command (silenced on missing tool).
+sound_command_for() {
+    local kind="$1"  # "stop" or "notification"
+    case "$(uname -s)" in
+        Darwin)
+            if [[ "$kind" == "stop" ]]; then
+                echo 'afplay /System/Library/Sounds/Hero.aiff 2>/dev/null || true'
+            else
+                echo 'afplay /System/Library/Sounds/Glass.aiff 2>/dev/null || true'
+            fi
+            ;;
+        Linux)
+            # WSL detection: use Windows beep if /proc/version mentions Microsoft
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+                echo "powershell.exe -c '[console]::beep(800,200)' 2>/dev/null || true"
+            else
+                echo 'paplay /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null || true'
+            fi
+            ;;
+        *)
+            echo 'true'
+            ;;
+    esac
+}
+
+do_sound_hooks() {
+    sound_hooks_active || return 0
+    if ! command -v python3 >/dev/null 2>&1; then
+        warn "python3 not found — skipping sound hooks"
+        return 0
+    fi
+    local settings="$BASE/settings.json"
+    local stop_cmd notif_cmd
+    stop_cmd=$(sound_command_for stop)
+    notif_cmd=$(sound_command_for notification)
+    # Use python heredoc to write the JSON safely (escaping bash-and-shell-special chars in commands)
+    local payload
+    payload=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'hooks': {
+        'Stop': [{'hooks': [{'type': 'command', 'command': '''$stop_cmd'''}]}],
+        'Notification': [{'hooks': [{'type': 'command', 'command': '''$notif_cmd'''}]}],
+    }
+}))
+")
+    if python3 "$JSON_MERGE" --list-union hooks.Stop --list-union hooks.Notification "$settings" "$payload" 2>/dev/null; then
+        log "settings/hooks.Stop + hooks.Notification (sound: $(uname -s)) merged"
+    else
+        warn "settings.json sound-hooks merge failed"
+    fi
+}
+
+do_sound_hooks_dry() {
+    sound_hooks_active || return 0
+    echo "Sound hooks:"
+    info "  + settings/hooks.Stop + hooks.Notification ($(uname -s) auto-detected)"
+    echo ""
+}
+
+# --- Thinking-summaries (claude target only, opt-in) ---
+thinking_summaries_active() {
+    [[ "$TARGET" == "claude" && "$THINKING_SUMMARIES" -eq 1 ]]
+}
+
+do_thinking_summaries() {
+    thinking_summaries_active || return 0
+    if ! command -v python3 >/dev/null 2>&1; then
+        warn "python3 not found — skipping --with-thinking-summaries"
+        return 0
+    fi
+    local settings="$BASE/settings.json"
+    if python3 "$JSON_MERGE" "$settings" '{"showThinkingSummaries": true}' 2>/dev/null; then
+        log "settings/showThinkingSummaries=true"
+    else
+        warn "settings.json showThinkingSummaries merge failed"
+    fi
+}
+
+do_thinking_summaries_dry() {
+    thinking_summaries_active || return 0
+    echo "Thinking summaries:"
+    info "  + settings/showThinkingSummaries=true"
+    echo ""
 }
 
 do_config_defaults_dry() {
@@ -352,10 +520,25 @@ do_config_defaults_dry() {
     else
         info "  + settings/\$schema=$CONFIG_SCHEMA_URL"
     fi
-    if [[ -f "$settings" ]] && grep -Fq 'Read(./**/*.key)' "$settings"; then
-        echo "  = settings/permissions.deny secrets (already set)"
+    if [[ -f "$settings" ]] && grep -Fq '"autoUpdatesChannel": "stable"' "$settings"; then
+        echo "  = settings/autoUpdatesChannel=stable (already set)"
     else
-        info "  + settings/permissions.deny += [.env, *.pem, *.key, secrets/**]"
+        info "  + settings/autoUpdatesChannel=stable (vs default 'latest' beta)"
+    fi
+    if [[ -f "$settings" ]] && grep -Fq '"cleanupPeriodDays": 180' "$settings"; then
+        echo "  = settings/cleanupPeriodDays=180 (already set)"
+    else
+        info "  + settings/cleanupPeriodDays=180 (vs default 30)"
+    fi
+    if [[ -f "$settings" ]] && grep -Fq '"spinnerTipsEnabled": false' "$settings"; then
+        echo "  = settings/spinnerTipsEnabled=false (already set)"
+    else
+        info "  + settings/spinnerTipsEnabled=false"
+    fi
+    if [[ -f "$settings" ]] && grep -Fq 'Bash(rm -rf /*)' "$settings"; then
+        echo "  = settings/permissions.deny (secrets + destructive Bash) already set"
+    else
+        info "  + settings/permissions.deny += [.env, *.pem, *.key, secrets/**, rm -rf /*, mkfs, dd of=/dev/*]"
     fi
     echo ""
 }
@@ -415,6 +598,21 @@ do_install() {
     if config_defaults_active; then
         echo ""
         do_config_defaults
+    fi
+
+    if claude_md_active; then
+        echo ""
+        do_claude_md
+    fi
+
+    if sound_hooks_active; then
+        echo ""
+        do_sound_hooks
+    fi
+
+    if thinking_summaries_active; then
+        echo ""
+        do_thinking_summaries
     fi
 
     echo ""
@@ -555,6 +753,9 @@ do_dry() {
 
     do_attribution_dry
     do_config_defaults_dry
+    do_claude_md_dry
+    do_sound_hooks_dry
+    do_thinking_summaries_dry
     codex_skip_notice
 }
 

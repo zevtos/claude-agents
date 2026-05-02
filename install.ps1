@@ -15,7 +15,10 @@
     .\install.ps1 -Update                # git pull --ff-only, then install
     .\install.ps1 -Uninstall             # remove installed files
     .\install.ps1 -NoAttributionFix      # skip Co-Authored-By suppression layer
-    .\install.ps1 -NoConfigDefaults      # skip $schema + secret deny-list
+    .\install.ps1 -NoConfigDefaults      # skip $schema + safe defaults + deny list
+    .\install.ps1 -NoClaudeMd            # skip neutral CLAUDE.md baseline (install-if-missing)
+    .\install.ps1 -WithSoundHooks        # opt-in: Stop + Notification sound hooks
+    .\install.ps1 -WithThinkingSummaries # opt-in: showThinkingSummaries=true
     .\install.ps1 -ShowVersion           # show version
 #>
 param(
@@ -28,6 +31,9 @@ param(
     [switch]$Uninstall,
     [switch]$NoAttributionFix,
     [switch]$NoConfigDefaults,
+    [switch]$NoClaudeMd,
+    [switch]$WithSoundHooks,
+    [switch]$WithThinkingSummaries,
     [switch]$ShowVersion,
     [switch]$Help
 )
@@ -42,15 +48,22 @@ $AgentsSrc = Join-Path $ScriptDir "agents"
 $CommandsSrc = Join-Path $ScriptDir "commands"
 $SkillsSrc = Join-Path $ScriptDir "skills"
 $HookSrc = Join-Path $ScriptDir "scripts/git-hooks/commit-msg"
+$ClaudeMdSrc = Join-Path $ScriptDir "scripts/CLAUDE.md.example"
 $GitTemplateDir = Join-Path $env:USERPROFILE ".git-templates"
 $GitHookDst = Join-Path $GitTemplateDir "hooks/commit-msg"
 $ConfigSchemaUrl = "https://json.schemastore.org/claude-code-settings.json"
+# permissions.deny: secrets + universally-destructive Bash patterns.
 $ConfigDenyList = @(
     "Read(./.env)"
     "Read(./.env.*)"
     "Read(./**/secrets/**)"
     "Read(./**/*.pem)"
     "Read(./**/*.key)"
+    "Bash(rm -rf /*)"
+    "Bash(rm -rf ~/*)"
+    "Bash(rm -rf `$HOME/*)"
+    "Bash(mkfs *)"
+    "Bash(dd * of=/dev/*)"
 )
 
 # Resolve destinations from target. Codex skills go to ~/.agents/skills/ (open-agent-skills
@@ -92,6 +105,18 @@ function Test-AttributionActive {
 
 function Test-ConfigDefaultsActive {
     return ($Target -eq "claude" -and -not $NoConfigDefaults)
+}
+
+function Test-ClaudeMdActive {
+    return ($Target -eq "claude" -and -not $NoClaudeMd)
+}
+
+function Test-SoundHooksActive {
+    return ($Target -eq "claude" -and $WithSoundHooks)
+}
+
+function Test-ThinkingSummariesActive {
+    return ($Target -eq "claude" -and $WithThinkingSummaries)
 }
 
 function Files-Equal($a, $b) {
@@ -270,8 +295,11 @@ function Do-ConfigDefaults {
     }
     $base = $r.Hash
 
-    # $schema (overwrite scalar)
+    # Top-level scalars (overwrite is fine — these are universal defaults)
     $base["`$schema"] = $ConfigSchemaUrl
+    $base["autoUpdatesChannel"] = "stable"
+    $base["cleanupPeriodDays"] = 180
+    $base["spinnerTipsEnabled"] = $false
 
     # permissions.deny set-union with user entries
     $perms = @{}
@@ -295,7 +323,7 @@ function Do-ConfigDefaults {
     $base["permissions"] = $perms
 
     if (Write-SettingsJson $base) {
-        Write-Ok "settings/`$schema + permissions.deny (secrets) merged"
+        Write-Ok "settings/config-defaults merged (`$schema + autoUpdatesChannel + cleanupPeriodDays + spinnerTipsEnabled + permissions.deny)"
     }
 }
 
@@ -308,16 +336,129 @@ function Do-ConfigDefaultsDry {
     if (-not (Test-ConfigDefaultsActive)) { return }
     Write-Host "Config-defaults:"
     $settings = Join-Path $Base "settings.json"
-    if ((Test-Path $settings) -and (Select-String -Path $settings -SimpleMatch -Pattern $ConfigSchemaUrl -Quiet)) {
-        Write-Host "  = settings/`$schema (already set)"
-    } else {
-        Write-Info "+ settings/`$schema=$ConfigSchemaUrl"
+    $matchers = @(
+        @{ Label = "`$schema=$ConfigSchemaUrl"; Pattern = $ConfigSchemaUrl }
+        @{ Label = "autoUpdatesChannel=stable (vs default 'latest' beta)"; Pattern = '"autoUpdatesChannel": "stable"' }
+        @{ Label = "cleanupPeriodDays=180 (vs default 30)"; Pattern = '"cleanupPeriodDays": 180' }
+        @{ Label = "spinnerTipsEnabled=false"; Pattern = '"spinnerTipsEnabled": false' }
+        @{ Label = "permissions.deny (secrets + destructive Bash)"; Pattern = 'Bash(rm -rf /*)' }
+    )
+    foreach ($m in $matchers) {
+        if ((Test-Path $settings) -and (Select-String -Path $settings -SimpleMatch -Pattern $m.Pattern -Quiet)) {
+            Write-Host "  = settings/$($m.Label) (already set)"
+        } else {
+            Write-Info "+ settings/$($m.Label)"
+        }
     }
-    if ((Test-Path $settings) -and (Select-String -Path $settings -SimpleMatch -Pattern 'Read(./**/*.key)' -Quiet)) {
-        Write-Host "  = settings/permissions.deny secrets (already set)"
+    Write-Host ""
+}
+
+# --- CLAUDE.md baseline (claude target only, install-if-missing) ---
+
+function Do-ClaudeMd {
+    if (-not (Test-ClaudeMdActive)) { return }
+    $dst = Join-Path $Base "CLAUDE.md"
+    if (Test-Path $dst) {
+        Write-Ok "claude-md/CLAUDE.md already exists - not overwriting"
     } else {
-        Write-Info "+ settings/permissions.deny += [.env, *.pem, *.key, secrets/**]"
+        New-Item -ItemType Directory -Path $Base -Force | Out-Null
+        Copy-Item -Path $ClaudeMdSrc -Destination $dst -Force
+        Write-Ok "claude-md/CLAUDE.md installed (neutral baseline) -> $dst"
     }
+}
+
+function Do-ClaudeMdDry {
+    if (-not (Test-ClaudeMdActive)) { return }
+    Write-Host "Claude.md baseline:"
+    $dst = Join-Path $Base "CLAUDE.md"
+    if (Test-Path $dst) {
+        Write-Host "  = CLAUDE.md (already exists, will not overwrite)"
+    } else {
+        Write-Info "+ CLAUDE.md (neutral baseline, install-if-missing)"
+    }
+    Write-Host ""
+}
+
+# --- Sound hooks (claude target only, opt-in via -WithSoundHooks) ---
+
+function Do-SoundHooks {
+    if (-not (Test-SoundHooksActive)) { return }
+    # Windows beep via PowerShell built-in
+    $stopCmd = "powershell -c [console]::beep(880,150)"
+    $notifCmd = "powershell -c [console]::beep(660,250)"
+
+    $r = Read-SettingsJson
+    if (-not $r.Ok) {
+        Write-Warn "settings.json has invalid JSON - skipping sound hooks"
+        return
+    }
+    $base = $r.Hash
+
+    $hooks = @{}
+    if ($base.ContainsKey("hooks")) {
+        $base["hooks"].PSObject.Properties | ForEach-Object {
+            $hooks[$_.Name] = $_.Value
+        }
+    }
+
+    function Add-HookEntry($key, $cmd) {
+        $entry = @{ hooks = @(@{ type = "command"; command = $cmd }) }
+        $existing = @()
+        if ($hooks.ContainsKey($key) -and $hooks[$key]) {
+            $existing = @($hooks[$key])
+        }
+        # Append only if no entry has the exact same command
+        $alreadyPresent = $false
+        foreach ($e in $existing) {
+            $existingCmds = @()
+            if ($e.PSObject.Properties.Name -contains "hooks") {
+                $existingCmds = @($e.hooks | ForEach-Object { $_.command })
+            } elseif ($e -is [hashtable] -and $e.ContainsKey("hooks")) {
+                $existingCmds = @($e["hooks"] | ForEach-Object { $_.command })
+            }
+            if ($existingCmds -contains $cmd) { $alreadyPresent = $true; break }
+        }
+        if (-not $alreadyPresent) {
+            $hooks[$key] = @($entry) + $existing
+        }
+    }
+
+    Add-HookEntry "Stop" $stopCmd
+    Add-HookEntry "Notification" $notifCmd
+    $base["hooks"] = $hooks
+
+    if (Write-SettingsJson $base) {
+        Write-Ok "settings/hooks.Stop + hooks.Notification (Windows beep) merged"
+    }
+}
+
+function Do-SoundHooksDry {
+    if (-not (Test-SoundHooksActive)) { return }
+    Write-Host "Sound hooks:"
+    Write-Info "+ settings/hooks.Stop + hooks.Notification (Windows beep)"
+    Write-Host ""
+}
+
+# --- Thinking summaries (claude target only, opt-in) ---
+
+function Do-ThinkingSummaries {
+    if (-not (Test-ThinkingSummariesActive)) { return }
+    $r = Read-SettingsJson
+    if (-not $r.Ok) {
+        Write-Warn "settings.json has invalid JSON - skipping showThinkingSummaries"
+        return
+    }
+    $base = $r.Hash
+    $base["showThinkingSummaries"] = $true
+    if (Write-SettingsJson $base) {
+        Write-Ok "settings/showThinkingSummaries=true"
+    }
+}
+
+function Do-ThinkingSummariesDry {
+    if (-not (Test-ThinkingSummariesActive)) { return }
+    Write-Host "Thinking summaries:"
+    Write-Info "+ settings/showThinkingSummaries=true"
     Write-Host ""
 }
 
@@ -366,6 +507,21 @@ function Do-Install {
     if (Test-ConfigDefaultsActive) {
         Write-Host ""
         Do-ConfigDefaults
+    }
+
+    if (Test-ClaudeMdActive) {
+        Write-Host ""
+        Do-ClaudeMd
+    }
+
+    if (Test-SoundHooksActive) {
+        Write-Host ""
+        Do-SoundHooks
+    }
+
+    if (Test-ThinkingSummariesActive) {
+        Write-Host ""
+        Do-ThinkingSummaries
     }
 
     Write-Host ""
@@ -498,6 +654,9 @@ function Do-Dry {
 
     Do-AttributionDry
     Do-ConfigDefaultsDry
+    Do-ClaudeMdDry
+    Do-SoundHooksDry
+    Do-ThinkingSummariesDry
     Show-CodexSkipNotice
 }
 
