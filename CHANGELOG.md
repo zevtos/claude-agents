@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-05-02
+
+### Fixed
+- **`gost-report`: city and year no longer overflow to page 2 of the title page.** The previous implementation in `_build_title_page` placed `Санкт-Петербург` and `2026` as the last two paragraphs of a stream-of-paragraphs builder, padded above by 14 fixed blank-paragraph spacers (6 + 4 + 4). Page-1 budget left only ~99pt of slack, so any single extra wrap of `university_full`, `topic`, the teacher line, or `student_name` pushed the year onto a near-empty page 2 (and the body section break shifted body content to page 3). New approach: emit city + year as a borderless single-column floating table anchored to the bottom margin via OOXML `w:tblpPr` (`vertAnchor=margin`, `tblpYSpec=bottom`, `horzAnchor=margin`, `tblpXSpec=center`). The footer is now pinned to the bottom of page 1 regardless of how the rest of the title page lays out — robust against long topics, multi-line ministry/university strings, long teacher titles, and custom `UniversityProfile` margins.
+
 ## [0.6.2] - 2026-04-27
 
 ### Fixed

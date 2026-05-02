@@ -914,6 +914,62 @@ class Report:
             )
         return p
 
+    def _add_bottom_anchored_block(self, lines):
+        """Borderless single-column таблица, плавающе прижатая к нижнему
+        полю текущей страницы. Каждый элемент ``lines`` — отдельная строка
+        (центр, TNR 14). Используется для города/года на титульнике, чтобы
+        они оставались на 1-й странице независимо от длины шапки/темы/ФИО.
+
+        Реализация — через OOXML ``w:tblpPr`` (плавающее позиционирование):
+        ``vertAnchor=margin`` + ``tblpYSpec=bottom`` прижимает низ таблицы к
+        нижнему полю; ``horzAnchor=margin`` + ``tblpXSpec=center`` центрирует
+        по горизонтали внутри полей. python-docx высокоуровневого API для
+        этого не даёт, поэтому правим XML напрямую.
+        """
+        table = self._doc.add_table(rows=len(lines), cols=1)
+        table.autofit = True
+
+        tbl = table._element
+        tblPr = tbl.find(qn("w:tblPr"))
+        if tblPr is None:
+            tblPr = OxmlElement("w:tblPr")
+            tbl.insert(0, tblPr)
+
+        tblpPr = OxmlElement("w:tblpPr")
+        tblpPr.set(qn("w:vertAnchor"), "margin")
+        tblpPr.set(qn("w:horzAnchor"), "margin")
+        tblpPr.set(qn("w:tblpYSpec"), "bottom")
+        tblpPr.set(qn("w:tblpXSpec"), "center")
+        tblpPr.set(qn("w:leftFromText"), "0")
+        tblpPr.set(qn("w:rightFromText"), "0")
+        tblpPr.set(qn("w:topFromText"), "0")
+        tblpPr.set(qn("w:bottomFromText"), "0")
+        tblPr.append(tblpPr)
+
+        tblOverlap = OxmlElement("w:tblOverlap")
+        tblOverlap.set(qn("w:val"), "never")
+        tblPr.append(tblOverlap)
+
+        tblBorders = OxmlElement("w:tblBorders")
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            b = OxmlElement(f"w:{edge}")
+            b.set(qn("w:val"), "nil")
+            tblBorders.append(b)
+        tblPr.append(tblBorders)
+
+        for row, text in zip(table.rows, lines):
+            cell = row.cells[0]
+            p = cell.paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pf = p.paragraph_format
+            pf.line_spacing = LINE_SPACING_BODY
+            pf.space_before = Pt(0)
+            pf.space_after = Pt(0)
+            run = p.add_run(text)
+            _set_run_font(run, size=FONT_SIZE_BODY)
+
+        return table
+
     def _build_title_page(self):
         cfg = self._title
 
@@ -996,14 +1052,14 @@ class Report:
                 left_indent=right_block_indent,
             )
 
-        # Прижимаем низ к городу/году
-        for _ in range(4):
-            self._add_paragraph()
-
+        # Город и год — прижаты к нижнему полю плавающей borderless-таблицей,
+        # чтобы не уезжать на page 2 при длинной шапке/теме/ФИО.
         city = self._resolve("city")
+        footer_lines = []
         if city:
-            self._add_paragraph(city)
-        self._add_paragraph(cfg.year)
+            footer_lines.append(city)
+        footer_lines.append(cfg.year)
+        self._add_bottom_anchored_block(footer_lines)
 
     # --------------------------------------------------------
     # Публичный API: контент основного текста
