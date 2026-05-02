@@ -1,0 +1,25 @@
+#!/bin/sh
+# agentpipe: strip Claude Code attribution trailers from commit messages.
+# Installed globally via init.templateDir so every new repo inherits it.
+#
+# Removes:
+#   🤖 Generated with [Claude Code](https://...)
+#   Co-Authored-By: Claude <noreply@anthropic.com>
+# Then trims trailing blank lines so the message ends cleanly.
+#
+# Portable across BSD sed (macOS) and GNU sed: -i.bak takes a suffix on both.
+
+set -eu
+
+msg_file="$1"
+[ -f "$msg_file" ] || exit 0
+
+sed -i.bak -E \
+    -e '/^[[:space:]]*🤖 Generated with \[Claude Code\]/d' \
+    -e '/^[[:space:]]*Co-Authored-By: Claude <noreply@anthropic\.com>/d' \
+    "$msg_file"
+
+# Trim trailing blank lines (POSIX BRE; works on BSD and GNU sed).
+sed -i.bak -e :a -e '/^$/{$d;N;ba' -e '}' "$msg_file"
+
+rm -f "$msg_file.bak"
