@@ -11,6 +11,7 @@ set -euo pipefail
 #   bash install.sh --diff                # show repo vs installed differences
 #   bash install.sh --pull                # copy installed back to repo
 #   bash install.sh --uninstall           # remove installed files
+#   bash install.sh --no-attribution-fix  # skip Co-Authored-By suppression layer
 #   bash install.sh --version             # show version
 #
 # Targets:
@@ -24,6 +25,10 @@ VERSION=$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "unknown")
 AGENTS_SRC="$SCRIPT_DIR/agents"
 COMMANDS_SRC="$SCRIPT_DIR/commands"
 SKILLS_SRC="$SCRIPT_DIR/skills"
+HOOK_SRC="$SCRIPT_DIR/scripts/git-hooks/commit-msg"
+JSON_MERGE="$SCRIPT_DIR/scripts/json-merge.py"
+GIT_TEMPLATE_DIR="$HOME/.git-templates"
+GIT_HOOK_DST="$GIT_TEMPLATE_DIR/hooks/commit-msg"
 
 # Resolve $HOME or Windows USERPROFILE for the given dotfolder name.
 # Used for both ~/.claude (Claude Code) and ~/.agents (Codex skills).
@@ -80,6 +85,7 @@ info() { echo -e "${CYAN}→${NC} $*"; }
 
 TARGET="claude"
 ACTION="install"
+ATTRIBUTION_FIX=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -90,6 +96,7 @@ while [[ $# -gt 0 ]]; do
         --pull)      ACTION="pull"; shift ;;
         --update)    ACTION="update"; shift ;;
         --uninstall) ACTION="uninstall"; shift ;;
+        --no-attribution-fix) ATTRIBUTION_FIX=0; shift ;;
         --version|-v)
             echo "agentpipe v$VERSION"
             exit 0
@@ -115,6 +122,10 @@ Actions:
   --update      git pull --ff-only, then install (one-shot upgrade to latest)
   --uninstall   Remove installed files
   --version     Show version
+
+Options:
+  --no-attribution-fix  Skip Co-Authored-By suppression (settings flag + git hook).
+                        On by default for --target claude. Always off for codex.
 EOF
             exit 0
             ;;
@@ -154,6 +165,130 @@ codex_skip_notice() {
         warn "Codex CLI has no custom slash commands — skipped commands/"
         warn "Codex agents use a different TOML format — skipped agents/. See README for details."
     fi
+}
+
+# --- Attribution-fix layer (claude target only) ---
+#
+# Two independent guards against Claude Code commit trailers:
+#  1. settings.json  → includeCoAuthoredBy=false  (official switch)
+#  2. ~/.git-templates/hooks/commit-msg  + init.templateDir  (belt-and-suspenders)
+# Codex target skips both: it doesn't run Claude Code.
+
+attribution_active() {
+    [[ "$TARGET" == "claude" && "$ATTRIBUTION_FIX" -eq 1 ]]
+}
+
+do_attribution_fix() {
+    attribution_active || return 0
+
+    # 1. settings.json
+    local settings="$BASE/settings.json"
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 "$JSON_MERGE" "$settings" '{"includeCoAuthoredBy": false}' 2>/dev/null; then
+            log "settings/includeCoAuthoredBy=false"
+        else
+            warn "settings.json merge failed — leaving file untouched"
+        fi
+    else
+        warn "python3 not found — skipping settings.json (hook layer still applies)"
+    fi
+
+    # 2. Global commit-msg hook via init.templateDir
+    mkdir -p "$GIT_TEMPLATE_DIR/hooks"
+    if [[ -f "$GIT_HOOK_DST" ]] && cmp -s "$HOOK_SRC" "$GIT_HOOK_DST"; then
+        log "git/commit-msg already current"
+    else
+        if [[ -f "$GIT_HOOK_DST" ]]; then
+            local backup="$GIT_HOOK_DST.agentpipe.bak.$(date +%s)"
+            mv "$GIT_HOOK_DST" "$backup"
+            warn "existing commit-msg hook backed up to $backup"
+        fi
+        cp "$HOOK_SRC" "$GIT_HOOK_DST"
+        chmod +x "$GIT_HOOK_DST"
+        log "git/commit-msg installed → $GIT_HOOK_DST"
+    fi
+
+    # 3. init.templateDir — set only if unset or already ours
+    local current
+    current=$(git config --global --get init.templateDir 2>/dev/null || true)
+    # Expand ~ for comparison purposes
+    local current_expanded="${current/#\~/$HOME}"
+    if [[ -z "$current" ]]; then
+        git config --global init.templateDir "$GIT_TEMPLATE_DIR"
+        log "git/init.templateDir=$GIT_TEMPLATE_DIR"
+    elif [[ "$current_expanded" == "$GIT_TEMPLATE_DIR" ]]; then
+        log "git/init.templateDir already set"
+    else
+        warn "init.templateDir already set to: $current"
+        warn "  → not overriding. Copy $GIT_HOOK_DST into $current/hooks/ manually."
+    fi
+
+    info "note: existing repos are unaffected — run 'git init' inside any repo"
+    info "      to apply the hook, or copy the hook into .git/hooks/ manually."
+}
+
+do_attribution_unfix() {
+    attribution_active || return 0
+
+    if [[ -f "$GIT_HOOK_DST" ]] && cmp -s "$HOOK_SRC" "$GIT_HOOK_DST"; then
+        rm "$GIT_HOOK_DST"
+        log "removed git/commit-msg"
+    fi
+
+    local current
+    current=$(git config --global --get init.templateDir 2>/dev/null || true)
+    local current_expanded="${current/#\~/$HOME}"
+    if [[ "$current_expanded" == "$GIT_TEMPLATE_DIR" ]]; then
+        git config --global --unset init.templateDir
+        log "unset git/init.templateDir"
+    fi
+
+    info "note: settings.json/includeCoAuthoredBy left as-is — edit manually to revert"
+}
+
+do_attribution_dry() {
+    attribution_active || return 0
+    echo "Attribution-fix:"
+    local settings="$BASE/settings.json"
+    if [[ -f "$settings" ]] && grep -q '"includeCoAuthoredBy"[[:space:]]*:[[:space:]]*false' "$settings"; then
+        echo "  = settings/includeCoAuthoredBy=false (already set)"
+    else
+        info "  + settings/includeCoAuthoredBy=false"
+    fi
+    if [[ -f "$GIT_HOOK_DST" ]] && cmp -s "$HOOK_SRC" "$GIT_HOOK_DST"; then
+        echo "  = git/commit-msg (identical)"
+    elif [[ -f "$GIT_HOOK_DST" ]]; then
+        warn "  ~ git/commit-msg (CHANGED — existing hook will be backed up)"
+    else
+        info "  + git/commit-msg (NEW)"
+    fi
+    local current
+    current=$(git config --global --get init.templateDir 2>/dev/null || true)
+    local current_expanded="${current/#\~/$HOME}"
+    if [[ "$current_expanded" == "$GIT_TEMPLATE_DIR" ]]; then
+        echo "  = git/init.templateDir=$GIT_TEMPLATE_DIR"
+    elif [[ -z "$current" ]]; then
+        info "  + git/init.templateDir=$GIT_TEMPLATE_DIR"
+    else
+        warn "  ! git/init.templateDir already set to $current — will not override"
+    fi
+    echo ""
+}
+
+do_attribution_diff() {
+    attribution_active || return 0
+    if [[ -f "$GIT_HOOK_DST" ]]; then
+        if ! cmp -s "$HOOK_SRC" "$GIT_HOOK_DST"; then
+            echo ""
+            warn "git-hooks/commit-msg differs:"
+            diff --color=auto -u "$GIT_HOOK_DST" "$HOOK_SRC" || true
+            return 1
+        fi
+    else
+        warn "git-hooks/commit-msg — not installed"
+        return 1
+    fi
+    return 0
 }
 
 # --- Actions ---
@@ -201,6 +336,11 @@ do_install() {
             log "skills/$name/"
             count=$((count + 1))
         done
+    fi
+
+    if attribution_active; then
+        echo ""
+        do_attribution_fix
     fi
 
     echo ""
@@ -264,6 +404,11 @@ do_uninstall() {
         fi
     done
 
+    if attribution_active; then
+        echo ""
+        do_attribution_unfix
+    fi
+
     echo ""
     info "Removed $count items from $BASE"
 }
@@ -326,8 +471,10 @@ do_dry() {
                 info "  + $name/ (NEW)"
             fi
         done
+        echo ""
     fi
 
+    do_attribution_dry
     codex_skip_notice
 }
 
@@ -390,6 +537,12 @@ do_diff() {
                 has_diff=1
             fi
         done
+    fi
+
+    if attribution_active; then
+        if ! do_attribution_diff; then
+            has_diff=1
+        fi
     fi
 
     if [[ $has_diff -eq 0 ]]; then
