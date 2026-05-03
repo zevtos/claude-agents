@@ -13,6 +13,7 @@ set -euo pipefail
 #   bash install.sh --uninstall           # remove installed files
 #   bash install.sh --no-attribution-fix  # skip Co-Authored-By suppression layer
 #   bash install.sh --no-config-defaults  # skip $schema + secret deny-list
+#   bash install.sh --model-profile opus  # all agents on opus (default: mixed)
 #   bash install.sh --version             # show version
 #
 # Targets:
@@ -92,6 +93,7 @@ CONFIG_DEFAULTS=1
 CLAUDE_MD=1
 SOUND_HOOKS=0
 THINKING_SUMMARIES=0
+MODEL_PROFILE_FLAG=""  # empty = no CLI flag; resolved later from settings.json or default
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -107,6 +109,8 @@ while [[ $# -gt 0 ]]; do
         --no-claude-md) CLAUDE_MD=0; shift ;;
         --with-sound-hooks) SOUND_HOOKS=1; shift ;;
         --with-thinking-summaries) THINKING_SUMMARIES=1; shift ;;
+        --model-profile=*) MODEL_PROFILE_FLAG="${1#--model-profile=}"; shift ;;
+        --model-profile)   MODEL_PROFILE_FLAG="${2:-}"; shift 2 ;;
         --version|-v)
             echo "agentpipe v$VERSION"
             exit 0
@@ -148,6 +152,12 @@ Options:
                             Always off for codex.
   --with-thinking-summaries Set showThinkingSummaries=true. Off by default — some users
                             find the thinking output noisy. Always off for codex.
+  --model-profile <preset>  Per-agent model assignment. Presets: opus (all agents on opus),
+                            sonnet (all on sonnet), mixed (default — opus for architect+
+                            security, sonnet for the rest, matches agents/*.md source).
+                            Persisted to settings.json under agentpipeModelProfile so
+                            update.sh reuses the choice. Codex unaffected (agents skipped).
+                            Note: opus profile costs ~5× more per session.
 EOF
             exit 0
             ;;
@@ -511,6 +521,90 @@ do_thinking_summaries_dry() {
     echo ""
 }
 
+# --- Model-profile layer (claude target only) ---
+#
+# Three presets:
+#   mixed (default) — opus for architect+security, sonnet for the rest.
+#                     Matches the source-of-truth model: lines in agents/*.md.
+#   opus            — every agent set to opus.
+#   sonnet          — every agent downgraded to sonnet.
+#
+# Source files in agents/ are NEVER modified. The installer rewrites the
+# `model:` line at copy time. Choice is persisted to ~/.claude/settings.json
+# under the key `agentpipeModelProfile` and reused on subsequent installs
+# unless --model-profile is passed again.
+#
+# Codex target skips this entirely (agents are not installed for codex).
+
+# Canonical (mixed-default) model for an agent name.
+canonical_model_for() {
+    case "$1" in
+        architect|security) echo "opus" ;;
+        *) echo "sonnet" ;;
+    esac
+}
+
+# Resolved model for a given profile + agent name.
+model_for_profile() {
+    local profile="$1" agent="$2"
+    case "$profile" in
+        opus|sonnet) echo "$profile" ;;
+        *) canonical_model_for "$agent" ;;  # mixed (and any unexpected value) → canonical
+    esac
+}
+
+# Copy agent file to dst, rewriting the `model:` line per profile.
+# Idempotent: re-running with the same profile produces byte-identical output.
+apply_model_rewrite() {
+    local src="$1" dst="$2" profile="$3"
+    local agent_name target_model
+    agent_name=$(basename "$src" .md)
+    target_model=$(model_for_profile "$profile" "$agent_name")
+    sed -E "s/^model: (opus|sonnet|haiku).*/model: $target_model/" "$src" > "$dst"
+}
+
+# Read persisted profile from settings.json. Echoes empty string if not set.
+read_persisted_profile() {
+    local settings="$BASE/settings.json"
+    [[ -f "$settings" ]] || { echo ""; return; }
+    command -v python3 >/dev/null 2>&1 || { echo ""; return; }
+    python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    v = d.get("agentpipeModelProfile", "")
+    print(v if v in ("opus", "sonnet", "mixed") else "")
+except Exception:
+    print("")
+' "$settings" 2>/dev/null
+}
+
+# Persist chosen profile to settings.json. Skipped on codex / when python3 missing.
+persist_profile() {
+    local profile="$1"
+    [[ "$TARGET" == "claude" ]] || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    python3 "$JSON_MERGE" "$BASE/settings.json" "{\"agentpipeModelProfile\": \"$profile\"}" >/dev/null 2>&1 || true
+}
+
+# Resolve MODEL_PROFILE: CLI flag > persisted (settings.json) > default 'mixed'.
+if [[ -n "$MODEL_PROFILE_FLAG" ]]; then
+    MODEL_PROFILE="$MODEL_PROFILE_FLAG"
+elif [[ "$TARGET" == "claude" ]]; then
+    persisted=$(read_persisted_profile)
+    MODEL_PROFILE="${persisted:-mixed}"
+else
+    MODEL_PROFILE="mixed"
+fi
+
+case "$MODEL_PROFILE" in
+    opus|sonnet|mixed) ;;
+    *)
+        err "Invalid --model-profile: $MODEL_PROFILE (use: opus, sonnet, mixed)"
+        exit 1
+        ;;
+esac
+
 do_config_defaults_dry() {
     config_defaults_active || return 0
     echo "Config-defaults:"
@@ -546,7 +640,11 @@ do_config_defaults_dry() {
 # --- Actions ---
 
 do_install() {
-    info "Installing agentpipe v$VERSION (target: $TARGET) to: $BASE"
+    if [[ -n "$AGENTS_DST" ]]; then
+        info "Installing agentpipe v$VERSION (target: $TARGET, model-profile: $MODEL_PROFILE) to: $BASE"
+    else
+        info "Installing agentpipe v$VERSION (target: $TARGET) to: $BASE"
+    fi
     local count=0
 
     if [[ -n "$AGENTS_DST" ]]; then
@@ -555,7 +653,7 @@ do_install() {
             [[ -f "$f" ]] || continue
             local name
             name=$(basename "$f")
-            cp "$f" "$AGENTS_DST/$name"
+            apply_model_rewrite "$f" "$AGENTS_DST/$name" "$MODEL_PROFILE"
             log "agents/$name"
             count=$((count + 1))
         done
@@ -613,6 +711,13 @@ do_install() {
     if thinking_summaries_active; then
         echo ""
         do_thinking_summaries
+    fi
+
+    # Persist profile only when user explicitly passed the flag — implicit defaults
+    # don't pollute settings.json. Re-runs without the flag read it back via
+    # read_persisted_profile.
+    if [[ -n "$MODEL_PROFILE_FLAG" && "$TARGET" == "claude" ]]; then
+        persist_profile "$MODEL_PROFILE"
     fi
 
     echo ""
@@ -695,13 +800,16 @@ do_dry() {
     echo ""
 
     if [[ -n "$AGENTS_DST" ]]; then
-        echo "Agents:"
+        echo "Agents (model-profile: $MODEL_PROFILE):"
+        local tmp
+        tmp=$(mktemp)
         for f in "$AGENTS_SRC"/*.md; do
             [[ -f "$f" ]] || continue
             local name
             name=$(basename "$f")
+            apply_model_rewrite "$f" "$tmp" "$MODEL_PROFILE"
             if [[ -f "$AGENTS_DST/$name" ]]; then
-                if diff -q "$f" "$AGENTS_DST/$name" >/dev/null 2>&1; then
+                if diff -q "$tmp" "$AGENTS_DST/$name" >/dev/null 2>&1; then
                     echo "  = $name (identical)"
                 else
                     warn "  ~ $name (CHANGED)"
@@ -710,6 +818,7 @@ do_dry() {
                 info "  + $name (NEW)"
             fi
         done
+        rm -f "$tmp"
         echo ""
     fi
 
@@ -764,15 +873,18 @@ do_diff() {
     local has_diff=0
 
     if [[ -n "$AGENTS_DST" ]]; then
+        local tmp
+        tmp=$(mktemp)
         for f in "$AGENTS_SRC"/*.md; do
             [[ -f "$f" ]] || continue
             local name
             name=$(basename "$f")
+            apply_model_rewrite "$f" "$tmp" "$MODEL_PROFILE"
             if [[ -f "$AGENTS_DST/$name" ]]; then
-                if ! diff -q "$f" "$AGENTS_DST/$name" >/dev/null 2>&1; then
+                if ! diff -q "$tmp" "$AGENTS_DST/$name" >/dev/null 2>&1; then
                     echo ""
-                    warn "agents/$name differs:"
-                    diff --color=auto -u "$AGENTS_DST/$name" "$f" || true
+                    warn "agents/$name differs (profile: $MODEL_PROFILE):"
+                    diff --color=auto -u "$AGENTS_DST/$name" "$tmp" || true
                     has_diff=1
                 fi
             else
@@ -780,6 +892,7 @@ do_diff() {
                 has_diff=1
             fi
         done
+        rm -f "$tmp"
     fi
 
     if [[ -n "$COMMANDS_DST" ]]; then
@@ -836,14 +949,22 @@ do_pull() {
     local count=0
 
     if [[ -n "$AGENTS_DST" && -d "$AGENTS_DST" ]]; then
+        # Strip user-side profile rewrite back to canonical mixed defaults so the
+        # repo source-of-truth never gets contaminated (e.g. all-opus user pulls
+        # → canonical opus-for-architect/security, sonnet-for-the-rest).
+        local stripped=0
         for f in "$AGENTS_DST"/*.md; do
             [[ -f "$f" ]] || continue
             local name
             name=$(basename "$f")
-            cp "$f" "$AGENTS_SRC/$name"
+            apply_model_rewrite "$f" "$AGENTS_SRC/$name" "mixed"
             log "agents/$name ← installed"
             count=$((count + 1))
+            stripped=1
         done
+        if [[ "$stripped" -eq 1 && "$MODEL_PROFILE" != "mixed" ]]; then
+            info "pulled back to canonical mixed defaults — installed profile was $MODEL_PROFILE"
+        fi
     fi
 
     if [[ -n "$COMMANDS_DST" && -d "$COMMANDS_DST" ]]; then

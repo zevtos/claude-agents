@@ -19,6 +19,7 @@
     .\install.ps1 -NoClaudeMd            # skip neutral CLAUDE.md baseline (install-if-missing)
     .\install.ps1 -WithSoundHooks        # opt-in: Stop + Notification sound hooks
     .\install.ps1 -WithThinkingSummaries # opt-in: showThinkingSummaries=true
+    .\install.ps1 -ModelProfile opus     # all agents on opus (default: mixed)
     .\install.ps1 -ShowVersion           # show version
 #>
 param(
@@ -34,6 +35,8 @@ param(
     [switch]$NoClaudeMd,
     [switch]$WithSoundHooks,
     [switch]$WithThinkingSummaries,
+    # Validated manually below — ValidateSet rejects the empty default.
+    [string]$ModelProfile = "",
     [switch]$ShowVersion,
     [switch]$Help
 )
@@ -462,14 +465,77 @@ function Do-ThinkingSummariesDry {
     Write-Host ""
 }
 
+# --- Model-profile layer (claude target only) ---
+# See install.sh's "Model-profile layer" comment for the design rationale.
+# Three presets: opus, sonnet, mixed (default = canonical opus-for-architect+
+# security, sonnet-for-the-rest). agents/*.md are NEVER modified — rewriting
+# happens at copy time. Choice is persisted to settings.json/agentpipeModelProfile.
+
+function Get-CanonicalModel($agentName) {
+    if ($agentName -eq "architect" -or $agentName -eq "security") { return "opus" }
+    return "sonnet"
+}
+
+function Get-ModelForProfile($profile, $agentName) {
+    if ($profile -eq "opus" -or $profile -eq "sonnet") { return $profile }
+    return (Get-CanonicalModel $agentName)
+}
+
+function Apply-ModelRewrite($srcPath, $dstPath, $profile) {
+    $agentName = [System.IO.Path]::GetFileNameWithoutExtension($srcPath)
+    $target = Get-ModelForProfile $profile $agentName
+    $enc = New-Object System.Text.UTF8Encoding $false
+    $content = [System.IO.File]::ReadAllText($srcPath, $enc)
+    $newContent = [regex]::Replace($content, '(?m)^model: (opus|sonnet|haiku).*$', "model: $target")
+    [System.IO.File]::WriteAllText($dstPath, $newContent, $enc)
+}
+
+function Read-PersistedProfile {
+    $r = Read-SettingsJson
+    if (-not $r.Ok) { return "" }
+    if (-not $r.Hash.ContainsKey("agentpipeModelProfile")) { return "" }
+    $v = [string]$r.Hash["agentpipeModelProfile"]
+    if ($v -in @("opus", "sonnet", "mixed")) { return $v }
+    return ""
+}
+
+function Persist-Profile($profile) {
+    if ($Target -ne "claude") { return }
+    $r = Read-SettingsJson
+    if (-not $r.Ok) { return }
+    $base = $r.Hash
+    $base["agentpipeModelProfile"] = $profile
+    Write-SettingsJson $base | Out-Null
+}
+
+# Resolve $ModelProfile: CLI flag > persisted (settings.json) > default 'mixed'.
+$Script:ModelProfileFlag = $ModelProfile  # remember if user passed it (for persist gating)
+if (-not $ModelProfile) {
+    if ($Target -eq "claude") {
+        $persisted = Read-PersistedProfile
+        if ($persisted) { $ModelProfile = $persisted } else { $ModelProfile = "mixed" }
+    } else {
+        $ModelProfile = "mixed"
+    }
+}
+
+if ($ModelProfile -notin @("opus", "sonnet", "mixed")) {
+    Write-Err "Invalid -ModelProfile: $ModelProfile (use: opus, sonnet, mixed)"
+    exit 1
+}
+
 function Do-Install {
-    Write-Info "Installing agentpipe v$($Script:Version) (target: $Target) to: $Base"
+    if ($AgentsDst) {
+        Write-Info "Installing agentpipe v$($Script:Version) (target: $Target, model-profile: $ModelProfile) to: $Base"
+    } else {
+        Write-Info "Installing agentpipe v$($Script:Version) (target: $Target) to: $Base"
+    }
     $count = 0
 
     if ($AgentsDst) {
         New-Item -ItemType Directory -Path $AgentsDst -Force | Out-Null
         Get-ChildItem "$AgentsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-            Copy-Item $_.FullName -Destination (Join-Path $AgentsDst $_.Name) -Force
+            Apply-ModelRewrite $_.FullName (Join-Path $AgentsDst $_.Name) $ModelProfile
             Write-Ok "agents/$($_.Name)"
             $count++
         }
@@ -522,6 +588,12 @@ function Do-Install {
     if (Test-ThinkingSummariesActive) {
         Write-Host ""
         Do-ThinkingSummaries
+    }
+
+    # Persist profile only when user explicitly passed -ModelProfile — implicit
+    # defaults don't pollute settings.json.
+    if ($Script:ModelProfileFlag -and $Target -eq "claude") {
+        Persist-Profile $ModelProfile
     }
 
     Write-Host ""
@@ -593,20 +665,26 @@ function Do-Dry {
     Write-Host ""
 
     if ($AgentsDst) {
-        Write-Host "Agents:"
-        Get-ChildItem "$AgentsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-            $dst = Join-Path $AgentsDst $_.Name
-            if (Test-Path $dst) {
-                $srcHash = (Get-FileHash $_.FullName).Hash
-                $dstHash = (Get-FileHash $dst).Hash
-                if ($srcHash -eq $dstHash) {
-                    Write-Host "  = $($_.Name) (identical)"
+        Write-Host "Agents (model-profile: $ModelProfile):"
+        $tmp = [System.IO.Path]::GetTempFileName()
+        try {
+            Get-ChildItem "$AgentsSrc\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
+                $dst = Join-Path $AgentsDst $_.Name
+                Apply-ModelRewrite $_.FullName $tmp $ModelProfile
+                if (Test-Path $dst) {
+                    $srcHash = (Get-FileHash $tmp).Hash
+                    $dstHash = (Get-FileHash $dst).Hash
+                    if ($srcHash -eq $dstHash) {
+                        Write-Host "  = $($_.Name) (identical)"
+                    } else {
+                        Write-Warn "~ $($_.Name) (CHANGED)"
+                    }
                 } else {
-                    Write-Warn "~ $($_.Name) (CHANGED)"
+                    Write-Info "+ $($_.Name) (NEW)"
                 }
-            } else {
-                Write-Info "+ $($_.Name) (NEW)"
             }
+        } finally {
+            if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
         }
         Write-Host ""
     }
@@ -665,14 +743,24 @@ function Do-Diff {
     $hasDiff = $false
 
     $pairs = @()
-    if ($AgentsDst)   { $pairs += @{ Label = "agents"; Src = $AgentsSrc; Dst = $AgentsDst } }
-    if ($CommandsDst) { $pairs += @{ Label = "commands"; Src = $CommandsSrc; Dst = $CommandsDst } }
+    if ($AgentsDst)   { $pairs += @{ Label = "agents"; Src = $AgentsSrc; Dst = $AgentsDst; Rewrite = $true } }
+    if ($CommandsDst) { $pairs += @{ Label = "commands"; Src = $CommandsSrc; Dst = $CommandsDst; Rewrite = $false } }
 
     foreach ($pair in $pairs) {
         Get-ChildItem "$($pair.Src)\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
             $dstFile = Join-Path $pair.Dst $_.Name
             if (Test-Path $dstFile) {
-                $srcContent = Get-Content $_.FullName -Raw
+                if ($pair.Rewrite) {
+                    $tmp = [System.IO.Path]::GetTempFileName()
+                    try {
+                        Apply-ModelRewrite $_.FullName $tmp $ModelProfile
+                        $srcContent = Get-Content $tmp -Raw
+                    } finally {
+                        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+                    }
+                } else {
+                    $srcContent = Get-Content $_.FullName -Raw
+                }
                 $dstContent = Get-Content $dstFile -Raw
                 if ($srcContent -ne $dstContent) {
                     Write-Warn "$($pair.Label)/$($_.Name) differs"
@@ -760,10 +848,18 @@ function Do-Pull {
     $count = 0
 
     if ($AgentsDst -and (Test-Path $AgentsDst)) {
+        # Strip user-side profile rewrite back to canonical mixed defaults so the
+        # repo source-of-truth never gets contaminated by an installed all-opus
+        # or all-sonnet copy.
+        $stripped = $false
         Get-ChildItem "$AgentsDst\*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-            Copy-Item $_.FullName -Destination (Join-Path $AgentsSrc $_.Name) -Force
+            Apply-ModelRewrite $_.FullName (Join-Path $AgentsSrc $_.Name) "mixed"
             Write-Ok "agents/$($_.Name) <- installed"
             $count++
+            $stripped = $true
+        }
+        if ($stripped -and $ModelProfile -ne "mixed") {
+            Write-Info "pulled back to canonical mixed defaults - installed profile was $ModelProfile"
         }
     }
 
