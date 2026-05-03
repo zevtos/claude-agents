@@ -299,21 +299,24 @@ def _check_table_captions(doc) -> List[Violation]:
     return violations
 
 
+# ---- Tier (b) checks: heuristic warn ---------------------------------------
+
 _PLACEHOLDER_NAME_RE = re.compile(r"Фамилия\s+И\.О\.")
 
 
 def _check_placeholder_name(doc) -> List[Violation]:
+    """Tier (b): шаблонное ФИО из примеров скилла. Warn, не fail —
+    у юзера могут быть законные причины (тест, демо, etc.); ложный fail
+    на example_lab.py хуже, чем пропущенный warn."""
     full_text = "\n".join(p.text for p in doc.paragraphs)
     if _PLACEHOLDER_NAME_RE.search(full_text):
         return [Violation(
-            tier=TIER_FAIL, code="placeholder-name",
+            tier=TIER_WARN, code="placeholder-name",
             message=("«Фамилия И.О.» из примеров skill'а попало в документ. "
                      "Подставь реальное ФИО студента/преподавателя."),
         )]
     return []
 
-
-# ---- Tier (b) checks: heuristic warn ---------------------------------------
 
 _AI_TONE_PATTERNS = [
     re.compile(r"в\s+ходе\s+выполнения\s+работ\w*", re.IGNORECASE),
