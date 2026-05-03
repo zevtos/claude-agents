@@ -84,6 +84,7 @@ The skill becomes globally available across all your conversations on that accou
 | No attribution-fix | `--no-attribution-fix` | `-NoAttributionFix` | Skip Co-Authored-By suppression layer (see below) |
 | No config-defaults | `--no-config-defaults` | `-NoConfigDefaults` | Skip $schema + autoUpdatesChannel + cleanupPeriodDays + spinnerTipsEnabled + permissions.deny |
 | No CLAUDE.md | `--no-claude-md` | `-NoClaudeMd` | Skip neutral CLAUDE.md baseline (default: install-if-missing) |
+| No gost-validation | `--no-gost-validation` | `-NoGostValidation` | Skip gost-report Stop-hook validator (default-on for claude target) |
 | With sound hooks | `--with-sound-hooks` | `-WithSoundHooks` | Opt-in: Stop + Notification audible cues (OS auto-detect) |
 | With thinking summaries | `--with-thinking-summaries` | `-WithThinkingSummaries` | Opt-in: `showThinkingSummaries=true` |
 | Model profile | `--model-profile <preset>` | `-ModelProfile <preset>` | Per-agent model assignment: `opus`, `sonnet`, `mixed` (default) |
@@ -142,6 +143,20 @@ The flag has no effect on `--target codex` (Codex doesn't install agents). Persi
 By default, if `~/.claude/CLAUDE.md` does not exist, the installer copies a **neutral** baseline from `scripts/CLAUDE.md.example`. The baseline covers communication, honesty, scope, and workflow rules — explicitly **stack-agnostic**, no language-specific style opinions. If `~/.claude/CLAUDE.md` already exists, it is **never overwritten**.
 
 Pass `--no-claude-md` (Bash) or `-NoClaudeMd` (PowerShell) to skip the baseline copy. The file is also not modified on subsequent installer runs once it exists — agentpipe treats it as user-owned after first install.
+
+## gost-report Validation Hook (`--no-gost-validation` to opt out)
+
+By default, on `--target claude`, the installer adds a `Stop` hook to `~/.claude/settings.json` that runs the `gost-report` skill's `validate.py` after every model turn. The validator scans the working directory for `*.gost-meta.json` sentinel files (written by `gost_report.Report.save()` next to each generated `.docx`), then validates each described `.docx` against ГОСТ 7.32 deterministic rules — em-dash leakage in body text, missing or non-monotonic figure/table captions, bare LaTeX in prose, placeholder name leaks, and a small bank of AI-tone phrases.
+
+If any hard-fail rule trips, the hook returns `{"decision": "block", "reason": "..."}` JSON, which Claude Code feeds back to the model as a continuation reason. The model then sees the violation list and self-corrects on the next turn — without `SKILL.md` containing any prose about "remember to validate."
+
+**Sentinel scoping** — the hook only validates `.docx` files that have a sibling `.gost-meta.json`. In projects that don't use `gost-report`, the hook is a ~5ms no-op (no sentinels found).
+
+**Crash safety** — the hook always exits 0, even on its own internal error. It cannot break the `Stop` pipeline.
+
+Pass `--no-gost-validation` (Bash) or `-NoGostValidation` (PowerShell) to skip the hook. The validator script itself still ships with the skill regardless of the flag — `r.save()` always runs L1 validation in-library and raises `GostValidationError` on failures. The hook is the deterministic L2 backup that catches cases where the model bypassed `r.save()` (e.g. used `python-docx` directly, or edited the file via `Bash sed`).
+
+Codex target intentionally skips this layer — Codex CLI has no hooks. The validator script still ships in the codex skill `.zip` and remains usable for manual debugging via `python validate.py --check <docx>`.
 
 ## Optional: Sound Hooks (`--with-sound-hooks`)
 

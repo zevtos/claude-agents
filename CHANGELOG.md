@@ -7,6 +7,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-03
+
+### Added
+- **`gost-report` skill: invisible automatic validation.** New `skills/gost-report/scripts/validate.py` module deterministically checks the generated `.docx` against ГОСТ 7.32 rules — long/short dash leakage in body text outside auto-captions, missing or non-monotonic figure/table captions, bare LaTeX (`\frac`, `\sum`, `\sqrt`, etc.) in prose, placeholder name leaks (`Фамилия И.О.`), AI-tone phrase bank from `SKILL.md`'s writing-style block. Two delivery layers:
+  - **L1 (always-on, every target).** `Report.save()` writes a `<docx>.gost-meta.json` sentinel next to the file, then runs the validator and raises `GostValidationError` on any tier-(a) violation. The model sees a Python traceback in the shell exactly as it would for any failing tool call — and the exception text is the only validation-related prose in the entire skill, visible only on failure. Tier-(b) heuristic warnings print to stderr without raising.
+  - **L2 (default-on for `--target claude`, opt-out via `--no-gost-validation` / `-NoGostValidation`).** A `Stop` hook merged into `~/.claude/settings.json` runs `python validate.py --hook` on every model Stop. The script scans cwd (depth ≤ 6) for sentinel files, validates each described `.docx`, and emits `{"decision":"block","reason":"..."}` JSON on tier-(a) violations — Claude Code feeds the reason back to the model so it self-corrects on the next turn. Hook always exits 0, even on its own internal error; cannot break the Stop pipeline. Sentinel-only scoping means zero false fires in projects that don't use `gost-report`.
+- **Skill body shrinks ~7.5 KB.** `SKILL.md`'s `## Checklist` section (11 lines) and `references/checklist.md` (76 lines) deleted — the validator is now the source of truth for everything that can be checked deterministically. The model's context never carries a manual checklist that could be forgotten in long generations; it thinks only about how to write the report. `grep -i 'валидаци|checklist|validate' SKILL.md` → 0 matches after this change.
+
+### Changed
+- **`Report.save()` now raises `GostValidationError(RuntimeError)` on validation failures.** Subclasses `RuntimeError` (not `Exception` directly) so existing user code with narrow `except IOError`/`except OSError` is unaffected. **BC NOTE:** code with broad `except Exception:` around `r.save()` will mask validation failures — review and let `GostValidationError` propagate, or catch specifically and re-raise after handling. The exception message explicitly tells the model not to suppress the error and not to switch to `python-docx` directly — those are the two failure modes the design defends against.
+- **`validate.py` self-bootstraps via the skill venv when invoked as a CLI.** When the Stop hook fires `python validate.py --hook`, the system python likely lacks `python-docx`. The script detects this, locates `<skill_dir>/.venv/bin/python` (created by `r.save()`'s first invocation via `ensure_env.py`), and re-execs under that interpreter. Net effect: the hook command in `settings.json` stays a one-liner, and validation kicks in once the user has run the skill at least once.
+
+### Notes
+- **Codex compatibility.** Codex CLI has no hooks, so L2 is unavailable on `--target codex`. L1 (in-library raise) works identically — the model sees Python tracebacks regardless of target. The validator script ships in both targets' skill copies and remains usable in `--check <docx>` mode for manual debugging.
+- **`--uninstall` does not auto-strip the Stop hook entry from `settings.json`** (same precedent as `--no-attribution-fix` / `--no-config-defaults` / `--with-sound-hooks` since v0.7.x). Re-running `bash install.sh --no-gost-validation` does not remove the previously-merged hook either; users who want to revert must edit `~/.claude/settings.json` manually.
+
 ## [0.10.0] - 2026-05-03
 
 ### Added
