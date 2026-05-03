@@ -17,6 +17,7 @@
     .\install.ps1 -NoAttributionFix      # skip Co-Authored-By suppression layer
     .\install.ps1 -NoConfigDefaults      # skip $schema + safe defaults + deny list
     .\install.ps1 -NoClaudeMd            # skip neutral CLAUDE.md baseline (install-if-missing)
+    .\install.ps1 -NoGostValidation      # skip gost-report Stop-hook validator (default: on)
     .\install.ps1 -WithSoundHooks        # opt-in: Stop + Notification sound hooks
     .\install.ps1 -WithThinkingSummaries # opt-in: showThinkingSummaries=true
     .\install.ps1 -ModelProfile opus     # all agents on opus (default: mixed)
@@ -33,6 +34,7 @@ param(
     [switch]$NoAttributionFix,
     [switch]$NoConfigDefaults,
     [switch]$NoClaudeMd,
+    [switch]$NoGostValidation,
     [switch]$WithSoundHooks,
     [switch]$WithThinkingSummaries,
     # Validated manually below — ValidateSet rejects the empty default.
@@ -120,6 +122,10 @@ function Test-SoundHooksActive {
 
 function Test-ThinkingSummariesActive {
     return ($Target -eq "claude" -and $WithThinkingSummaries)
+}
+
+function Test-GostValidationActive {
+    return ($Target -eq "claude" -and -not $NoGostValidation)
 }
 
 function Files-Equal($a, $b) {
@@ -465,6 +471,69 @@ function Do-ThinkingSummariesDry {
     Write-Host ""
 }
 
+# --- gost-report validation hook (claude target only, default-on) ---
+# Mirror of install.sh's do_gost_validation. See that block for rationale.
+# Stop hook runs validate.py against any .docx with a sibling sentinel,
+# emits {"decision":"block","reason":"..."} JSON on failure. Always exits 0.
+# Sentinel-only scoping → no false fires in non-gost-report projects.
+# Codex target skips this layer (Codex CLI has no hooks).
+
+function Do-GostValidation {
+    if (-not (Test-GostValidationActive)) { return }
+    $validatePath = Join-Path $SkillsDst "gost-report\scripts\validate.py"
+    if (-not (Test-Path $validatePath)) { return }
+
+    $r = Read-SettingsJson
+    if (-not $r.Ok) {
+        Write-Warn "settings.json has invalid JSON - skipping gost-validation"
+        return
+    }
+    $base = $r.Hash
+
+    $hooks = @{}
+    if ($base.ContainsKey("hooks")) {
+        $base["hooks"].PSObject.Properties | ForEach-Object {
+            $hooks[$_.Name] = $_.Value
+        }
+    }
+
+    # Hook command: invoke python on validate.py. validate.py self-bootstraps
+    # via skill venv if system python lacks python-docx (see _maybe_reexec_in_venv
+    # in validate.py). Hook always exits 0 internally — never crashes Stop.
+    $cmd = "python `"$validatePath`" --hook"
+
+    $entry = @{ hooks = @(@{ type = "command"; command = $cmd }) }
+    $existing = @()
+    if ($hooks.ContainsKey("Stop") -and $hooks["Stop"]) {
+        $existing = @($hooks["Stop"])
+    }
+    $alreadyPresent = $false
+    foreach ($e in $existing) {
+        $existingCmds = @()
+        if ($e.PSObject.Properties.Name -contains "hooks") {
+            $existingCmds = @($e.hooks | ForEach-Object { $_.command })
+        } elseif ($e -is [hashtable] -and $e.ContainsKey("hooks")) {
+            $existingCmds = @($e["hooks"] | ForEach-Object { $_.command })
+        }
+        if ($existingCmds -contains $cmd) { $alreadyPresent = $true; break }
+    }
+    if (-not $alreadyPresent) {
+        $hooks["Stop"] = @($entry) + $existing
+    }
+    $base["hooks"] = $hooks
+
+    if (Write-SettingsJson $base) {
+        Write-Ok "settings/hooks.Stop += gost-report validate (deterministic, invisible to model)"
+    }
+}
+
+function Do-GostValidationDry {
+    if (-not (Test-GostValidationActive)) { return }
+    Write-Host "Gost-report validation hook:"
+    Write-Info "+ settings/hooks.Stop += gost-report validate (deterministic, default-on)"
+    Write-Host ""
+}
+
 # --- Model-profile layer (claude target only) ---
 # See install.sh's "Model-profile layer" comment for the design rationale.
 # Three presets: opus, sonnet, mixed (default = canonical opus-for-architect+
@@ -588,6 +657,11 @@ function Do-Install {
     if (Test-ThinkingSummariesActive) {
         Write-Host ""
         Do-ThinkingSummaries
+    }
+
+    if (Test-GostValidationActive) {
+        Write-Host ""
+        Do-GostValidation
     }
 
     # Persist profile only when user explicitly passed -ModelProfile — implicit
@@ -735,6 +809,7 @@ function Do-Dry {
     Do-ClaudeMdDry
     Do-SoundHooksDry
     Do-ThinkingSummariesDry
+    Do-GostValidationDry
     Show-CodexSkipNotice
 }
 
