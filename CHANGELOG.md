@@ -7,6 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-03
+
+### Added
+- **`--model-profile <preset>` / `-ModelProfile <preset>` flag** for per-agent model selection. Three presets: `mixed` (default, byte-identical to `agents/*.md` source — opus for `architect`+`security`, sonnet for the rest), `opus` (every agent rewritten to opus), `sonnet` (every agent downgraded to sonnet). Source files are **never modified** — the installer rewrites the `model:` line at copy time via sed (Bash) / regex (PowerShell), so re-running with the same profile produces byte-identical output. Codex target is unaffected (agents are not installed for `--target codex` regardless).
+- **Profile is persisted** to `~/.claude/settings.json` under the key `agentpipeModelProfile`. Subsequent installs (including `update.sh`) reuse the persisted choice unless `--model-profile` is passed again. Persistence happens only when the user explicitly passes the flag — implicit `mixed` defaults don't pollute settings.json.
+- **Profile-aware `--dry` and `--diff`** — both pipe source through the rewrite helper into a temp file before comparison, so a profile switch shows real drift, not phantom drift on every model line.
+- **`--pull` always strips back to canonical mixed defaults** before writing into `agents/` — the repo source-of-truth is never contaminated by an installed `opus`-or-`sonnet` profile copy. A one-line info notice is printed when a non-mixed installed profile is stripped.
+
+### Notes
+- `--model-profile` is the granular escape hatch. The blunt-force alternative is the `CLAUDE_CODE_SUBAGENT_MODEL` env var, which overrides every subagent's model from outside — including Claude Code's built-in `Plan` and `Explore`. The installer's flag is documented as the primary mechanism; the env var is mentioned in `docs/installation.md` as a global override for users who want it.
+- `--uninstall` does **not** strip `agentpipeModelProfile` from settings.json (same precedent as `includeCoAuthoredBy` / `permissions.deny` in v0.7.x — we don't track keys we added). Re-installing after uninstall will pick up the persisted profile from settings.json.
+- A future `haiku` preset was considered and rejected for now — none of the agent prompts target haiku capabilities, and nobody asked for it. Will revisit if requested.
+
 ## [0.9.0] - 2026-05-03
 
 ### Added
