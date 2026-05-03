@@ -86,6 +86,7 @@ The skill becomes globally available across all your conversations on that accou
 | No CLAUDE.md | `--no-claude-md` | `-NoClaudeMd` | Skip neutral CLAUDE.md baseline (default: install-if-missing) |
 | With sound hooks | `--with-sound-hooks` | `-WithSoundHooks` | Opt-in: Stop + Notification audible cues (OS auto-detect) |
 | With thinking summaries | `--with-thinking-summaries` | `-WithThinkingSummaries` | Opt-in: `showThinkingSummaries=true` |
+| Model profile | `--model-profile <preset>` | `-ModelProfile <preset>` | Per-agent model assignment: `opus`, `sonnet`, `mixed` (default) |
 | Help | `--help` | `-Help` | Show usage information |
 
 All actions respect `--target`. Examples:
@@ -111,6 +112,30 @@ By default, on `--target claude`, the installer adds these defaults to `~/.claud
 The deny list is intentional: these are paths nobody wants Claude reading and commands nobody wants Claude executing, regardless of stack. We deliberately do **not** ship a `permissions.allow` list — that's stack-specific. Use Claude Code's built-in `fewer-permission-prompts` skill to build an allow-list dynamically from your actual usage.
 
 Pass `--no-config-defaults` (Bash) or `-NoConfigDefaults` (PowerShell) to skip this layer. `--uninstall` does **not** auto-remove these keys (preserves user state); edit `settings.json` manually to revert.
+
+## Per-Agent Model Profile (`--model-profile`)
+
+Each agent in `agents/*.md` declares the model it uses (`opus` or `sonnet`) in YAML frontmatter. The repo ships a **mixed** default: `architect` and `security` on opus (deep reasoning roles), the other seven on sonnet. The `--model-profile` flag lets you override that at install time:
+
+| Preset | What it does | Cost |
+|---|---|---|
+| `mixed` (default) | Byte-identical to source — `architect`+`security` on opus, the rest on sonnet | baseline |
+| `opus` | Every agent rewritten to opus | ~5× sonnet on heavy sessions |
+| `sonnet` | Every agent rewritten to sonnet | cheaper, lower reasoning ceiling |
+
+Source files in `agents/` are **never modified** — the rewrite happens at copy time. Your choice is persisted to `~/.claude/settings.json` under the key `agentpipeModelProfile`, so subsequent installs (including `update.sh`) reuse it without you having to repeat the flag. Pass the flag again to switch.
+
+```bash
+bash install.sh --model-profile opus     # one-time switch — remembered
+bash update.sh                           # re-uses opus from settings.json
+bash install.sh --model-profile mixed    # reset to default
+```
+
+`--diff` and `--dry` compare against the rewritten output (so a profile switch shows real drift, not phantom). `--pull` always strips back to canonical mixed defaults — the repo is never contaminated by your installed profile.
+
+The flag has no effect on `--target codex` (Codex doesn't install agents). Persistence is also skipped on codex.
+
+**Escape hatch.** If you want to override every subagent's model from outside the installer, set `CLAUDE_CODE_SUBAGENT_MODEL=opus` in your shell rc. This wins over the agent's frontmatter — but it overrides **all** subagents, including Claude Code's built-in `Plan` and `Explore`. The installer's `--model-profile` is more granular: it only touches agentpipe's nine agents, not the built-ins.
 
 ## CLAUDE.md Baseline (install-if-missing)
 

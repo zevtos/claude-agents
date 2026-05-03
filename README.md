@@ -51,7 +51,7 @@ Vanilla Claude Code already ships agents, commands, and skills — but they're *
 | Agents | meta/utility (`general-purpose`, `Explore`, `Plan`, `claude-code-guide`, `statusline-setup`) — generic helpers | **9 domain specialists** with role-bounded tool access (architect, dba, devops, docs, pm, refactorer, reviewer, security, tester) — e.g. reviewer = Read+Grep only, can't accidentally edit |
 | Slash commands | session/config (`/init`, `/clear`, `/agents`, `/mcp`, `/model`, `/config`, ...) | **15 gated multi-agent workflows** (`/feature`, `/sprint`, `/audit`, `/release`, `/refactor`, ...) with conditional steps and parallel gates |
 | Skills | dev-tooling utilities (`claude-api`, `loop`, `schedule`, `update-config`, ...) — for power-users of Claude Code | **end-user domain skills** (`gost-report` for Russian academic .docx — more on the way) |
-| Per-agent model selection | global / manual | **auto** — opus for high-reasoning roles (architect, security), sonnet for the rest |
+| Per-agent model selection | global / manual | **auto** — opus for high-reasoning roles (architect, security), sonnet for the rest. Override at install: `--model-profile opus` / `sonnet` / `mixed` (default), persisted across updates. |
 | Multi-vendor distribution | Claude Code only | **same skills** in Codex CLI via `bash install.sh --target codex` |
 | Skill release packaging | n/a (manual) | `bash scripts/build-skills.sh` + GH Actions auto-attaches zips on tag push |
 
@@ -162,6 +162,7 @@ Each gate must pass before proceeding. Agents have bounded tool access (reviewer
 - **Safe defaults**: also by default, the installer adds `$schema`, `autoUpdatesChannel: "stable"` (vs the beta `latest`), `cleanupPeriodDays: 180`, `spinnerTipsEnabled: false`, and a `permissions.deny` set-union for unsafe reads (`.env`, `*.pem`, `*.key`, `secrets/**`) and destructive Bash patterns (`rm -rf /*`, `mkfs *`, `dd * of=/dev/*`). Pass `--no-config-defaults` to skip. See [docs/installation.md](docs/installation.md#safe-defaults-layer).
 - **CLAUDE.md baseline**: install-if-missing. The installer copies a neutral, stack-agnostic baseline from `scripts/CLAUDE.md.example` to `~/.claude/CLAUDE.md` only if no file exists there. Never overwrites. Pass `--no-claude-md` to skip.
 - **Opt-in personal preferences**: `--with-sound-hooks` (Stop/Notification audible cues, OS auto-detect), `--with-thinking-summaries` (`showThinkingSummaries: true` in settings).
+- **Per-agent model profile**: `--model-profile opus` puts every agent on opus, `--model-profile sonnet` downgrades all to sonnet, default is `mixed` (canonical opus-for-architect+security, sonnet-for-the-rest). Choice is persisted to `settings.json` so `update.sh` re-uses it. Source files are never modified — rewrite happens at copy time. See [docs/installation.md](docs/installation.md#per-agent-model-profile---model-profile).
 - **Optional shell env vars**: `scripts/agentpipe.env.example` documents reasoning-effort, adaptive-thinking, and telemetry-bundle vars. Not auto-installed — copy what you want into your shell rc. See [docs/installation.md](docs/installation.md#optional-shell-environment-variables).
 - **Update entry point**: `bash update.sh` (or `.\update.ps1`) — pulls latest and re-installs. Same thing as `install.sh --update`, just a clearer entry point.
 

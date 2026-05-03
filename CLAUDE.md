@@ -20,6 +20,7 @@ bash update.sh                        # canonical update entry point (forwards t
 bash install.sh --no-claude-md        # skip baseline CLAUDE.md (default: install-if-missing)
 bash install.sh --with-sound-hooks    # opt-in: Stop+Notification sound hooks (OS auto-detect)
 bash install.sh --with-thinking-summaries  # opt-in: showThinkingSummaries=true
+bash install.sh --model-profile opus  # all agents on opus (default: mixed; persisted to settings.json)
 bash scripts/build-skills.sh          # package every skills/<name>/ into dist/<name>.zip
 bash scripts/eval.sh --list           # list local agent eval scenarios (no claude calls)
 bash scripts/eval.sh <agent>          # run agent prompt-quality eval (uses claude -p, ~2 msgs/scenario)
@@ -121,7 +122,7 @@ Skills are installed as folders to `~/.claude/skills/<name>/` and discovered by 
 - Agent descriptions are triggers, not summaries. Write for the model to understand WHEN to fire.
 - Skill descriptions follow the same trigger principle and may include foreign-language keywords if the skill is domain-specific (see skills/gost-report).
 - No @-importing files in agent bodies — bloats every session.
-- Model assignment: opus for high-reasoning roles (architect, security). sonnet for everything else.
+- Model assignment: opus for high-reasoning roles (architect, security). sonnet for everything else. This is the canonical `mixed` profile baked into `agents/*.md` source. Users can override at install time via `--model-profile opus|sonnet|mixed`; the installer rewrites the `model:` line at copy time without touching source files.
 - Research docs are reference material. Agents do not auto-import them.
 - Releases: bump VERSION → update CHANGELOG → commit → `git tag vX.Y.Z` → push tag. The release workflow builds skill zips and attaches them to the GitHub release.
 

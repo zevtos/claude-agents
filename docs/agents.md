@@ -6,6 +6,8 @@ Agents are specialist personas with bounded tool access. They are invoked by com
 
 ## Agent Overview
 
+The Model column reflects the default `mixed` profile (opus for `architect`+`security`, sonnet for the rest). Override at install with `--model-profile opus` (all agents on opus) or `--model-profile sonnet` (all on sonnet) — see [installation.md](installation.md#per-agent-model-profile---model-profile). Source files in `agents/` are never modified; rewriting happens at copy time.
+
 | Agent | Domain | Model | Tools |
 |-------|--------|-------|-------|
 | **architect** | System design, API contracts, ADRs | opus | Read, Grep, Glob, WebFetch, WebSearch |
