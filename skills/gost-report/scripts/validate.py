@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 import traceback
 from dataclasses import dataclass
@@ -33,6 +35,44 @@ except ImportError:
     Document = None
     qn = None
     HAS_DOCX = False
+
+
+def _venv_python() -> Optional[Path]:
+    """Путь к скилл-venv питону, если он есть рядом."""
+    skill_dir = Path(__file__).resolve().parent.parent
+    if os.name == "nt":
+        candidate = skill_dir / ".venv" / "Scripts" / "python.exe"
+    else:
+        candidate = skill_dir / ".venv" / "bin" / "python"
+    return candidate if candidate.exists() else None
+
+
+def _maybe_reexec_in_venv(argv: List[str]) -> None:
+    """Если python-docx не доступен в текущем питоне, но скилл-venv существует —
+    re-exec под venv-питоном. Используется только в CLI-режиме (--hook / --check):
+    при `import validate` из gost_report этот код не выполняется (importer уже
+    на правильном питоне).
+
+    Если venv нет (юзер ещё ни разу не вызывал r.save()) — функция возвращает
+    управление; CLI решит сам, что делать (--hook silently exit 0, --check
+    прокинет missing-deps Violation).
+    """
+    if HAS_DOCX:
+        return
+    venv_py = _venv_python()
+    if venv_py is None:
+        return
+    try:
+        same = Path(sys.executable).resolve() == venv_py.resolve()
+    except OSError:
+        same = False
+    if same:
+        return
+    script = str(Path(__file__).resolve())
+    if os.name == "nt":
+        rc = subprocess.run([str(venv_py), script, *argv]).returncode
+        sys.exit(rc)
+    os.execv(str(venv_py), [str(venv_py), script, *argv])
 
 
 SENTINEL_VERSION = 1
@@ -458,6 +498,9 @@ def _check_main(path_str: str) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    raw_argv = list(sys.argv[1:]) if argv is None else list(argv)
+    _maybe_reexec_in_venv(raw_argv)
+
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--hook", action="store_true",
                         help="Stop-hook: сканирует cwd, JSON decision-block")
