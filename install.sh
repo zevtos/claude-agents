@@ -13,6 +13,7 @@ set -euo pipefail
 #   bash install.sh --uninstall           # remove installed files
 #   bash install.sh --no-attribution-fix  # skip Co-Authored-By suppression layer
 #   bash install.sh --no-config-defaults  # skip $schema + secret deny-list
+#   bash install.sh --no-gost-validation  # skip gost-report Stop-hook validator
 #   bash install.sh --model-profile opus  # all agents on opus (default: mixed)
 #   bash install.sh --version             # show version
 #
@@ -93,6 +94,7 @@ CONFIG_DEFAULTS=1
 CLAUDE_MD=1
 SOUND_HOOKS=0
 THINKING_SUMMARIES=0
+GOST_VALIDATION=1
 MODEL_PROFILE_FLAG=""  # empty = no CLI flag; resolved later from settings.json or default
 
 while [[ $# -gt 0 ]]; do
@@ -107,6 +109,7 @@ while [[ $# -gt 0 ]]; do
         --no-attribution-fix) ATTRIBUTION_FIX=0; shift ;;
         --no-config-defaults) CONFIG_DEFAULTS=0; shift ;;
         --no-claude-md) CLAUDE_MD=0; shift ;;
+        --no-gost-validation) GOST_VALIDATION=0; shift ;;
         --with-sound-hooks) SOUND_HOOKS=1; shift ;;
         --with-thinking-summaries) THINKING_SUMMARIES=1; shift ;;
         --model-profile=*) MODEL_PROFILE_FLAG="${1#--model-profile=}"; shift ;;
@@ -147,6 +150,11 @@ Options:
   --no-claude-md            Don't install ~/.claude/CLAUDE.md.example baseline.
                             Default: install only if ~/.claude/CLAUDE.md does not exist
                             (never overwrites). Always off for codex.
+  --no-gost-validation      Skip the deterministic Stop hook that runs gost-report's
+                            validate.py against any .docx with a sibling sentinel file.
+                            On by default for --target claude — invisible to the model
+                            in normal flow, fires only when the generated .docx fails
+                            ГОСТ checks. Off by default for codex (Codex has no hooks).
   --with-sound-hooks        Add Stop+Notification sound hooks (afplay/paplay/powershell beep).
                             OS auto-detected. Off by default — personal preference.
                             Always off for codex.
@@ -521,6 +529,64 @@ do_thinking_summaries_dry() {
     echo ""
 }
 
+# --- gost-report validation hook (claude target only, default-on) ---
+#
+# Stop hook fires once per turn. validate.py scans cwd for *.gost-meta.json
+# sentinels (written by gost_report.Report.save()) and validates each .docx
+# they describe. On any tier-(a) violation, validate.py prints a JSON
+# {"decision":"block","reason":"..."} which Claude Code feeds back to the
+# model as a continuation reason. The hook itself always exits 0 — even on
+# its own crash — so it can never break the Stop pipeline.
+#
+# Sentinel scoping: only .docx files with a sibling .gost-meta.json get
+# validated. Hooks fire in every project's Claude Code session, but in
+# projects that don't use gost-report there are no sentinels and the hook
+# is a ~5ms no-op.
+#
+# Codex target skips this — Codex CLI has no hooks. The validate.py script
+# still ships in the codex skill .zip and works in CLI mode (--check) for
+# manual debugging.
+
+gost_validation_active() {
+    [[ "$TARGET" == "claude" && "$GOST_VALIDATION" -eq 1 ]]
+}
+
+do_gost_validation() {
+    gost_validation_active || return 0
+    if ! command -v python3 >/dev/null 2>&1; then
+        warn "python3 not found — skipping gost-validation hook"
+        return 0
+    fi
+    local validate_path="$SKILLS_DST/gost-report/scripts/validate.py"
+    if [[ ! -f "$validate_path" ]]; then
+        # Skill not installed in this run (--target codex would already have
+        # exited via gost_validation_active false; but be defensive).
+        return 0
+    fi
+    local settings="$BASE/settings.json"
+    # Build the hook JSON via Python heredoc so the path is opaquely
+    # quoted regardless of shell-meta chars in $HOME.
+    local payload
+    payload=$(VALIDATE_PATH="$validate_path" python3 -c '
+import json, os
+vp = os.environ["VALIDATE_PATH"]
+cmd = f"python3 \"{vp}\" --hook 2>/dev/null || true"
+print(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
+')
+    if python3 "$JSON_MERGE" --list-union hooks.Stop "$settings" "$payload" 2>/dev/null; then
+        log "settings/hooks.Stop += gost-report validate (deterministic, invisible to model)"
+    else
+        warn "settings.json gost-validation merge failed"
+    fi
+}
+
+do_gost_validation_dry() {
+    gost_validation_active || return 0
+    echo "Gost-report validation hook:"
+    info "  + settings/hooks.Stop += gost-report validate (deterministic, default-on)"
+    echo ""
+}
+
 # --- Model-profile layer (claude target only) ---
 #
 # Three presets:
@@ -713,6 +779,11 @@ do_install() {
         do_thinking_summaries
     fi
 
+    if gost_validation_active; then
+        echo ""
+        do_gost_validation
+    fi
+
     # Persist profile only when user explicitly passed the flag — implicit defaults
     # don't pollute settings.json. Re-runs without the flag read it back via
     # read_persisted_profile.
@@ -865,6 +936,7 @@ do_dry() {
     do_claude_md_dry
     do_sound_hooks_dry
     do_thinking_summaries_dry
+    do_gost_validation_dry
     codex_skip_notice
 }
 
