@@ -7,21 +7,23 @@
     or ~/.agents/skills/ (Codex CLI, with -Target codex; agents and commands are skipped
     because Codex agents use a different TOML format and Codex CLI has no custom slash commands).
 .EXAMPLE
-    .\install.ps1                        # install for Claude Code (default)
-    .\install.ps1 -Target codex          # install for Codex CLI (skills only)
-    .\install.ps1 -Dry                   # preview what would be copied
-    .\install.ps1 -Diff                  # show repo vs installed differences
-    .\install.ps1 -Pull                  # copy installed back to repo
-    .\install.ps1 -Update                # git pull --ff-only, then install
-    .\install.ps1 -Uninstall             # remove installed files
-    .\install.ps1 -NoAttributionFix      # skip Co-Authored-By suppression layer
-    .\install.ps1 -NoConfigDefaults      # skip $schema + safe defaults + deny list
-    .\install.ps1 -NoClaudeMd            # skip neutral CLAUDE.md baseline (install-if-missing)
-    .\install.ps1 -NoGostValidation      # skip gost-report Stop-hook validator (default: on)
-    .\install.ps1 -WithSoundHooks        # opt-in: Stop + Notification sound hooks
-    .\install.ps1 -WithThinkingSummaries # opt-in: showThinkingSummaries=true
-    .\install.ps1 -ModelProfile opus     # all agents on opus (default: mixed)
-    .\install.ps1 -ShowVersion           # show version
+    .\install.ps1                          # install for Claude Code (default)
+    .\install.ps1 -Target codex            # install for Codex CLI (skills only)
+    .\install.ps1 -Dry                     # preview what would be copied
+    .\install.ps1 -Diff                    # show repo vs installed differences
+    .\install.ps1 -Pull                    # copy installed back to repo
+    .\install.ps1 -Update                  # git pull --ff-only, then install
+    .\install.ps1 -Uninstall               # remove installed files
+    .\install.ps1 -CleanSoundHooks         # strip Stop+Notification sound hooks from settings.json
+    .\install.ps1 -NoAttributionFix        # skip Co-Authored-By suppression layer
+    .\install.ps1 -NoConfigDefaults        # skip $schema + safe defaults + deny list
+    .\install.ps1 -NoClaudeMd              # skip neutral CLAUDE.md baseline (install-if-missing)
+    .\install.ps1 -NoGostValidation        # skip gost-report Stop-hook validator (default: on)
+    .\install.ps1 -WithSoundHooks          # opt-in: Stop sound hook only (one beep per turn)
+    .\install.ps1 -WithNotificationSound   # opt-in: Notification sound hook only
+    .\install.ps1 -WithThinkingSummaries   # opt-in: showThinkingSummaries=true
+    .\install.ps1 -ModelProfile opus       # all agents on opus (default: mixed)
+    .\install.ps1 -ShowVersion             # show version
 #>
 param(
     [ValidateSet("claude", "codex")]
@@ -31,11 +33,13 @@ param(
     [switch]$Pull,
     [switch]$Update,
     [switch]$Uninstall,
+    [switch]$CleanSoundHooks,
     [switch]$NoAttributionFix,
     [switch]$NoConfigDefaults,
     [switch]$NoClaudeMd,
     [switch]$NoGostValidation,
     [switch]$WithSoundHooks,
+    [switch]$WithNotificationSound,
     [switch]$WithThinkingSummaries,
     # Validated manually below — ValidateSet rejects the empty default.
     [string]$ModelProfile = "",
@@ -116,8 +120,12 @@ function Test-ClaudeMdActive {
     return ($Target -eq "claude" -and -not $NoClaudeMd)
 }
 
-function Test-SoundHooksActive {
+function Test-StopSoundActive {
     return ($Target -eq "claude" -and $WithSoundHooks)
+}
+
+function Test-NotificationSoundActive {
+    return ($Target -eq "claude" -and $WithNotificationSound)
 }
 
 function Test-ThinkingSummariesActive {
@@ -388,17 +396,24 @@ function Do-ClaudeMdDry {
     Write-Host ""
 }
 
-# --- Sound hooks (claude target only, opt-in via -WithSoundHooks) ---
+# --- Sound hooks (claude target only, opt-in) ---
+# -WithSoundHooks         → Stop sound hook only (one beep when Claude finishes)
+# -WithNotificationSound  → Notification sound hook only (permission/wait-for-input)
+# Passing both is allowed; a warning is printed because Notification often
+# fires right after Stop, producing two beeps in sequence.
 
-function Do-SoundHooks {
-    if (-not (Test-SoundHooksActive)) { return }
-    # Windows beep via PowerShell built-in
-    $stopCmd = "powershell -c [console]::beep(880,150)"
-    $notifCmd = "powershell -c [console]::beep(660,250)"
+# Sound-cue command pattern. Mirrors scripts/clean-sound-hooks.py — keep in sync.
+$Script:SoundCmdPattern = '(?i)(\bafplay\b|\bpaplay\b|\[console\]::beep|powershell(\.exe)?\b[^|;&]*\bbeep\b)'
 
+function Test-SoundCommand($cmd) {
+    if (-not $cmd) { return $false }
+    return [bool]([regex]::Match($cmd, $Script:SoundCmdPattern).Success)
+}
+
+function Merge-SoundHook($eventName, $cmd) {
     $r = Read-SettingsJson
     if (-not $r.Ok) {
-        Write-Warn "settings.json has invalid JSON - skipping sound hooks"
+        Write-Warn "settings.json has invalid JSON - skipping sound hook ($eventName)"
         return
     }
     $base = $r.Hash
@@ -410,42 +425,153 @@ function Do-SoundHooks {
         }
     }
 
-    function Add-HookEntry($key, $cmd) {
-        $entry = @{ hooks = @(@{ type = "command"; command = $cmd }) }
-        $existing = @()
-        if ($hooks.ContainsKey($key) -and $hooks[$key]) {
-            $existing = @($hooks[$key])
-        }
-        # Append only if no entry has the exact same command
-        $alreadyPresent = $false
-        foreach ($e in $existing) {
-            $existingCmds = @()
-            if ($e.PSObject.Properties.Name -contains "hooks") {
-                $existingCmds = @($e.hooks | ForEach-Object { $_.command })
-            } elseif ($e -is [hashtable] -and $e.ContainsKey("hooks")) {
-                $existingCmds = @($e["hooks"] | ForEach-Object { $_.command })
-            }
-            if ($existingCmds -contains $cmd) { $alreadyPresent = $true; break }
-        }
-        if (-not $alreadyPresent) {
-            $hooks[$key] = @($entry) + $existing
-        }
+    $entry = @{ hooks = @(@{ type = "command"; command = $cmd }) }
+    $existing = @()
+    if ($hooks.ContainsKey($eventName) -and $hooks[$eventName]) {
+        $existing = @($hooks[$eventName])
     }
-
-    Add-HookEntry "Stop" $stopCmd
-    Add-HookEntry "Notification" $notifCmd
+    # Append only if no existing entry has the exact same command
+    $alreadyPresent = $false
+    foreach ($e in $existing) {
+        $existingCmds = @()
+        if ($e.PSObject.Properties.Name -contains "hooks") {
+            $existingCmds = @($e.hooks | ForEach-Object { $_.command })
+        } elseif ($e -is [hashtable] -and $e.ContainsKey("hooks")) {
+            $existingCmds = @($e["hooks"] | ForEach-Object { $_.command })
+        }
+        if ($existingCmds -contains $cmd) { $alreadyPresent = $true; break }
+    }
+    if (-not $alreadyPresent) {
+        $hooks[$eventName] = @($entry) + $existing
+    }
     $base["hooks"] = $hooks
 
     if (Write-SettingsJson $base) {
-        Write-Ok "settings/hooks.Stop + hooks.Notification (Windows beep) merged"
+        Write-Ok "settings/hooks.$eventName (Windows beep) merged"
     }
 }
 
-function Do-SoundHooksDry {
-    if (-not (Test-SoundHooksActive)) { return }
-    Write-Host "Sound hooks:"
-    Write-Info "+ settings/hooks.Stop + hooks.Notification (Windows beep)"
+function Do-StopSoundHook {
+    if (-not (Test-StopSoundActive)) { return }
+    Merge-SoundHook "Stop" "powershell -c [console]::beep(880,150)"
+}
+
+function Do-NotificationSoundHook {
+    if (-not (Test-NotificationSoundActive)) { return }
+    Merge-SoundHook "Notification" "powershell -c [console]::beep(660,250)"
+}
+
+function Warn-SoundOverlap {
+    if ((Test-StopSoundActive) -and (Test-NotificationSoundActive)) {
+        Write-Warn "-WithSoundHooks AND -WithNotificationSound both set:"
+        Write-Warn "  Notification often fires right after Stop, so you may hear"
+        Write-Warn "  two beeps in sequence at the end of each chat. Pass only one"
+        Write-Warn "  flag if that's not intended, or run -CleanSoundHooks to reset."
+    }
+}
+
+function Do-StopSoundHookDry {
+    if (-not (Test-StopSoundActive)) { return }
+    Write-Host "Sound hook (Stop):"
+    Write-Info "+ settings/hooks.Stop (Windows beep)"
     Write-Host ""
+}
+
+function Do-NotificationSoundHookDry {
+    if (-not (Test-NotificationSoundActive)) { return }
+    Write-Host "Sound hook (Notification):"
+    Write-Info "+ settings/hooks.Notification (Windows beep)"
+    Write-Host ""
+}
+
+# -CleanSoundHooks action — strip every sound-hook entry (Stop+Notification)
+# from settings.json. Recognises afplay, paplay, [console]::beep, powershell beep.
+# Leaves non-sound hooks (gost-validation, user customs) intact.
+function Do-CleanSoundHooks {
+    if ($Target -ne "claude") {
+        Write-Info "clean-sound-hooks: no-op for codex (Codex CLI has no hooks)"
+        return
+    }
+    $settings = Join-Path $Base "settings.json"
+    if (-not (Test-Path $settings)) {
+        Write-Info "no settings.json at $settings - nothing to clean"
+        return
+    }
+    $r = Read-SettingsJson
+    if (-not $r.Ok) {
+        Write-Err "settings.json has invalid JSON - cannot clean sound hooks"
+        exit 1
+    }
+    $base = $r.Hash
+    if (-not $base.ContainsKey("hooks")) {
+        Write-Info "no hooks section in $settings - nothing to clean"
+        return
+    }
+
+    $hooksObj = $base["hooks"]
+    $hooks = @{}
+    if ($hooksObj -is [hashtable]) {
+        $hooksObj.GetEnumerator() | ForEach-Object { $hooks[$_.Key] = $_.Value }
+    } else {
+        $hooksObj.PSObject.Properties | ForEach-Object { $hooks[$_.Name] = $_.Value }
+    }
+
+    $totalRemoved = 0
+    foreach ($eventName in @("Stop", "Notification")) {
+        if (-not $hooks.ContainsKey($eventName)) { continue }
+        $entries = @($hooks[$eventName])
+        $newEntries = @()
+        foreach ($entry in $entries) {
+            $inner = @()
+            $hasInner = $false
+            if ($entry -is [hashtable] -and $entry.ContainsKey("hooks")) {
+                $inner = @($entry["hooks"])
+                $hasInner = $true
+            } elseif ($entry.PSObject -and ($entry.PSObject.Properties.Name -contains "hooks")) {
+                $inner = @($entry.hooks)
+                $hasInner = $true
+            }
+            if (-not $hasInner) {
+                $newEntries += $entry
+                continue
+            }
+            $kept = @($inner | Where-Object { -not (Test-SoundCommand $_.command) })
+            $totalRemoved += ($inner.Count - $kept.Count)
+            if ($kept.Count -gt 0) {
+                $newEntry = @{ hooks = $kept }
+                if ($entry -is [hashtable]) {
+                    foreach ($k in $entry.Keys) {
+                        if ($k -ne "hooks") { $newEntry[$k] = $entry[$k] }
+                    }
+                } else {
+                    $entry.PSObject.Properties | Where-Object { $_.Name -ne "hooks" } | ForEach-Object {
+                        $newEntry[$_.Name] = $_.Value
+                    }
+                }
+                $newEntries += $newEntry
+            }
+        }
+        if ($newEntries.Count -gt 0) {
+            $hooks[$eventName] = $newEntries
+        } else {
+            $hooks.Remove($eventName)
+        }
+    }
+
+    if ($hooks.Count -eq 0) {
+        $base.Remove("hooks")
+    } else {
+        $base["hooks"] = $hooks
+    }
+
+    if ($totalRemoved -gt 0) {
+        if (Write-SettingsJson $base) {
+            $word = if ($totalRemoved -eq 1) { "entry" } else { "entries" }
+            Write-Ok "removed $totalRemoved sound hook $word from $settings"
+        }
+    } else {
+        Write-Info "no sound hook entries found in $settings"
+    }
 }
 
 # --- Thinking summaries (claude target only, opt-in) ---
@@ -649,9 +775,16 @@ function Do-Install {
         Do-ClaudeMd
     }
 
-    if (Test-SoundHooksActive) {
+    Warn-SoundOverlap
+
+    if (Test-StopSoundActive) {
         Write-Host ""
-        Do-SoundHooks
+        Do-StopSoundHook
+    }
+
+    if (Test-NotificationSoundActive) {
+        Write-Host ""
+        Do-NotificationSoundHook
     }
 
     if (Test-ThinkingSummariesActive) {
@@ -807,7 +940,9 @@ function Do-Dry {
     Do-AttributionDry
     Do-ConfigDefaultsDry
     Do-ClaudeMdDry
-    Do-SoundHooksDry
+    Warn-SoundOverlap
+    Do-StopSoundHookDry
+    Do-NotificationSoundHookDry
     Do-ThinkingSummariesDry
     Do-GostValidationDry
     Show-CodexSkipNotice
@@ -981,4 +1116,5 @@ elseif ($Diff) { Do-Diff }
 elseif ($Pull) { Do-Pull }
 elseif ($Update) { Do-Update }
 elseif ($Uninstall) { Do-Uninstall }
+elseif ($CleanSoundHooks) { Do-CleanSoundHooks }
 else { Do-Install }

@@ -8,7 +8,8 @@
     .\update.ps1                          # update for Claude Code
     .\update.ps1 -Target codex            # update for Codex CLI
     .\update.ps1 -NoClaudeMd              # skip baseline CLAUDE.md install on update
-    .\update.ps1 -WithSoundHooks          # opt-in sound hooks during update
+    .\update.ps1 -WithSoundHooks          # opt-in: Stop sound hook only during update
+    .\update.ps1 -WithNotificationSound   # opt-in: Notification sound hook only during update
 #>
 param(
     [Parameter(ValueFromRemainingArguments = $true)]

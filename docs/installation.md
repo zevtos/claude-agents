@@ -85,7 +85,9 @@ The skill becomes globally available across all your conversations on that accou
 | No config-defaults | `--no-config-defaults` | `-NoConfigDefaults` | Skip $schema + autoUpdatesChannel + cleanupPeriodDays + spinnerTipsEnabled + permissions.deny |
 | No CLAUDE.md | `--no-claude-md` | `-NoClaudeMd` | Skip neutral CLAUDE.md baseline (default: install-if-missing) |
 | No gost-validation | `--no-gost-validation` | `-NoGostValidation` | Skip gost-report Stop-hook validator (default-on for claude target) |
-| With sound hooks | `--with-sound-hooks` | `-WithSoundHooks` | Opt-in: Stop + Notification audible cues (OS auto-detect) |
+| With sound hooks | `--with-sound-hooks` | `-WithSoundHooks` | Opt-in: Stop sound hook only (one beep when Claude finishes) |
+| With notification sound | `--with-notification-sound` | `-WithNotificationSound` | Opt-in: Notification sound hook only (permission/wait-for-input) |
+| Clean sound hooks | `--clean-sound-hooks` | `-CleanSoundHooks` | Strip every sound hook (Stop+Notification) from `settings.json` |
 | With thinking summaries | `--with-thinking-summaries` | `-WithThinkingSummaries` | Opt-in: `showThinkingSummaries=true` |
 | Model profile | `--model-profile <preset>` | `-ModelProfile <preset>` | Per-agent model assignment: `opus`, `sonnet`, `mixed` (default) |
 | Help | `--help` | `-Help` | Show usage information |
@@ -158,16 +160,37 @@ Pass `--no-gost-validation` (Bash) or `-NoGostValidation` (PowerShell) to skip t
 
 Codex target intentionally skips this layer — Codex CLI has no hooks. The validator script still ships in the codex skill `.zip` and remains usable for manual debugging via `python validate.py --check <docx>`.
 
-## Optional: Sound Hooks (`--with-sound-hooks`)
+## Optional: Sound Hooks (`--with-sound-hooks` / `--with-notification-sound`)
 
-Opt-in (off by default). When passed, the installer merges `Stop` and `Notification` hooks into `~/.claude/settings.json`. The OS-appropriate command is auto-detected:
+Two **independent** opt-in flags, both off by default:
+
+- `--with-sound-hooks` (`-WithSoundHooks`) — installs only the `Stop` sound hook. Fires one beep when Claude finishes a turn. This is the typical "Claude is done" cue most people want.
+- `--with-notification-sound` (`-WithNotificationSound`) — installs only the `Notification` sound hook. Fires when Claude is waiting for input or requests a permission.
+
+The OS-appropriate command is auto-detected:
 
 - **macOS**: `afplay /System/Library/Sounds/Hero.aiff` (Stop) + `Glass.aiff` (Notification)
 - **Linux**: `paplay /usr/share/sounds/freedesktop/stereo/complete.oga`
 - **WSL**: `powershell.exe -c '[console]::beep(800,200)'`
-- **Windows (PowerShell installer)**: `[console]::beep(880,150)` / `[console]::beep(660,250)`
+- **Windows (PowerShell installer)**: `[console]::beep(880,150)` (Stop) / `[console]::beep(660,250)` (Notification)
 
 The merge is set-union — your existing hook entries are preserved.
+
+**Both flags together** are allowed but warned. `Notification` often fires immediately after `Stop` (Claude finishes → "waiting for input" notification), so you'd hear two beeps in sequence at the end of each chat. Pass only one flag if that's not what you want.
+
+### Resetting Sound Hooks (`--clean-sound-hooks`)
+
+`--clean-sound-hooks` (`-CleanSoundHooks`) is an **action** (like `--uninstall`) that strips every sound-hook entry from `~/.claude/settings.json`. Useful if:
+
+- You earlier installed both hooks (the previous default, before this flag split) and want to keep only one.
+- You want a clean slate before re-adding with the new single-purpose flags.
+
+The command recognises and removes: `afplay` (macOS), `paplay` (Linux), `[console]::beep` (Windows native), `powershell.exe ... beep` (WSL). **Non-sound hooks are preserved** — gost-validation, user customs, anything else under `hooks.Stop` or `hooks.Notification` stays put.
+
+```bash
+bash install.sh --clean-sound-hooks      # strip all sound hooks
+bash install.sh --with-sound-hooks       # re-add Stop only
+```
 
 ## Optional: Thinking Summaries (`--with-thinking-summaries`)
 

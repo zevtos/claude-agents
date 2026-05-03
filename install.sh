@@ -11,9 +11,12 @@ set -euo pipefail
 #   bash install.sh --diff                # show repo vs installed differences
 #   bash install.sh --pull                # copy installed back to repo
 #   bash install.sh --uninstall           # remove installed files
+#   bash install.sh --clean-sound-hooks   # strip Stop+Notification sound hooks from settings.json
 #   bash install.sh --no-attribution-fix  # skip Co-Authored-By suppression layer
 #   bash install.sh --no-config-defaults  # skip $schema + secret deny-list
 #   bash install.sh --no-gost-validation  # skip gost-report Stop-hook validator
+#   bash install.sh --with-sound-hooks         # opt-in: Stop sound hook only
+#   bash install.sh --with-notification-sound  # opt-in: Notification sound hook only
 #   bash install.sh --model-profile opus  # all agents on opus (default: mixed)
 #   bash install.sh --version             # show version
 #
@@ -93,6 +96,7 @@ ATTRIBUTION_FIX=1
 CONFIG_DEFAULTS=1
 CLAUDE_MD=1
 SOUND_HOOKS=0
+NOTIFICATION_SOUND=0
 THINKING_SUMMARIES=0
 GOST_VALIDATION=1
 MODEL_PROFILE_FLAG=""  # empty = no CLI flag; resolved later from settings.json or default
@@ -106,11 +110,13 @@ while [[ $# -gt 0 ]]; do
         --pull)      ACTION="pull"; shift ;;
         --update)    ACTION="update"; shift ;;
         --uninstall) ACTION="uninstall"; shift ;;
+        --clean-sound-hooks) ACTION="clean-sound-hooks"; shift ;;
         --no-attribution-fix) ATTRIBUTION_FIX=0; shift ;;
         --no-config-defaults) CONFIG_DEFAULTS=0; shift ;;
         --no-claude-md) CLAUDE_MD=0; shift ;;
         --no-gost-validation) GOST_VALIDATION=0; shift ;;
         --with-sound-hooks) SOUND_HOOKS=1; shift ;;
+        --with-notification-sound) NOTIFICATION_SOUND=1; shift ;;
         --with-thinking-summaries) THINKING_SUMMARIES=1; shift ;;
         --model-profile=*) MODEL_PROFILE_FLAG="${1#--model-profile=}"; shift ;;
         --model-profile)   MODEL_PROFILE_FLAG="${2:-}"; shift 2 ;;
@@ -122,7 +128,7 @@ while [[ $# -gt 0 ]]; do
             cat <<EOF
 agentpipe v$VERSION
 
-Usage: bash install.sh [--target <name>] [--dry|--diff|--pull|--update|--uninstall]
+Usage: bash install.sh [--target <name>] [--dry|--diff|--pull|--update|--uninstall|--clean-sound-hooks]
        bash install.sh --version
 
 Targets:
@@ -138,6 +144,10 @@ Actions:
   --pull        Copy installed versions back to repo
   --update      git pull --ff-only, then install (one-shot upgrade to latest)
   --uninstall   Remove installed files
+  --clean-sound-hooks  Strip every sound hook entry (Stop+Notification) from
+                ~/.claude/settings.json. Leaves non-sound hooks intact
+                (gost-validation, user customs). Use to reset before re-adding
+                with --with-sound-hooks / --with-notification-sound.
   --version     Show version
 
 Options:
@@ -155,9 +165,13 @@ Options:
                             On by default for --target claude — invisible to the model
                             in normal flow, fires only when the generated .docx fails
                             ГОСТ checks. Off by default for codex (Codex has no hooks).
-  --with-sound-hooks        Add Stop+Notification sound hooks (afplay/paplay/powershell beep).
-                            OS auto-detected. Off by default — personal preference.
-                            Always off for codex.
+  --with-sound-hooks        Add a Stop sound hook (one beep when Claude finishes a turn).
+                            OS auto-detected: afplay/paplay/powershell beep. Off by default —
+                            personal preference. Always off for codex.
+  --with-notification-sound Add a Notification sound hook (beep on permission prompts and
+                            "waiting for input"). Independent of --with-sound-hooks. Passing
+                            both is allowed but warns: Notification often fires right after
+                            Stop, producing two beeps in sequence. Always off for codex.
   --with-thinking-summaries Set showThinkingSummaries=true. Off by default — some users
                             find the thinking output noisy. Always off for codex.
   --model-profile <preset>  Per-agent model assignment. Presets: opus (all agents on opus),
@@ -437,10 +451,18 @@ do_claude_md_dry() {
 }
 
 # --- Sound hooks (claude target only, opt-in) ---
-# Stop + Notification audible cues. OS auto-detected.
+# Stop and Notification are independent audible cues. OS auto-detected.
+# --with-sound-hooks         → Stop only (one beep when Claude finishes a turn)
+# --with-notification-sound  → Notification only (beep on permission/wait-for-input)
+# Both flags together print a warning — Notification often fires right after
+# Stop, producing two beeps in sequence at the end of a chat.
 
-sound_hooks_active() {
+stop_sound_active() {
     [[ "$TARGET" == "claude" && "$SOUND_HOOKS" -eq 1 ]]
+}
+
+notification_sound_active() {
+    [[ "$TARGET" == "claude" && "$NOTIFICATION_SOUND" -eq 1 ]]
 }
 
 # Returns the OS-appropriate sound command (silenced on missing tool).
@@ -468,39 +490,94 @@ sound_command_for() {
     esac
 }
 
-do_sound_hooks() {
-    sound_hooks_active || return 0
+# Internal helper: merge a single sound hook (Stop or Notification) into settings.
+# $1 = "Stop" or "Notification", $2 = OS-detected command string.
+_merge_sound_hook() {
+    local event="$1" cmd="$2"
     if ! command -v python3 >/dev/null 2>&1; then
-        warn "python3 not found — skipping sound hooks"
+        warn "python3 not found — skipping sound hook ($event)"
         return 0
     fi
     local settings="$BASE/settings.json"
-    local stop_cmd notif_cmd
-    stop_cmd=$(sound_command_for stop)
-    notif_cmd=$(sound_command_for notification)
-    # Use python heredoc to write the JSON safely (escaping bash-and-shell-special chars in commands)
     local payload
-    payload=$(python3 -c "
-import json, sys
+    payload=$(EVENT="$event" CMD="$cmd" python3 -c '
+import json, os
 print(json.dumps({
-    'hooks': {
-        'Stop': [{'hooks': [{'type': 'command', 'command': '''$stop_cmd'''}]}],
-        'Notification': [{'hooks': [{'type': 'command', 'command': '''$notif_cmd'''}]}],
+    "hooks": {
+        os.environ["EVENT"]: [{"hooks": [{"type": "command", "command": os.environ["CMD"]}]}],
     }
 }))
-")
-    if python3 "$JSON_MERGE" --list-union hooks.Stop --list-union hooks.Notification "$settings" "$payload" 2>/dev/null; then
-        log "settings/hooks.Stop + hooks.Notification (sound: $(uname -s)) merged"
+')
+    if python3 "$JSON_MERGE" --list-union "hooks.$event" "$settings" "$payload" 2>/dev/null; then
+        log "settings/hooks.$event (sound: $(uname -s)) merged"
     else
-        warn "settings.json sound-hooks merge failed"
+        warn "settings.json sound-hook merge failed ($event)"
     fi
 }
 
-do_sound_hooks_dry() {
-    sound_hooks_active || return 0
-    echo "Sound hooks:"
-    info "  + settings/hooks.Stop + hooks.Notification ($(uname -s) auto-detected)"
+do_stop_sound_hook() {
+    stop_sound_active || return 0
+    _merge_sound_hook Stop "$(sound_command_for stop)"
+}
+
+do_notification_sound_hook() {
+    notification_sound_active || return 0
+    _merge_sound_hook Notification "$(sound_command_for notification)"
+}
+
+# Warn when both sound flags are set: Stop and Notification often fire in
+# sequence at end-of-chat (Notification = "waiting for input"), so the user
+# would hear two beeps. Print once before the merge so the warning is visible.
+warn_sound_overlap() {
+    if stop_sound_active && notification_sound_active; then
+        warn "--with-sound-hooks AND --with-notification-sound both set:"
+        warn "  Notification often fires right after Stop, so you may hear"
+        warn "  two beeps in sequence at the end of each chat. Pass only one"
+        warn "  flag if that's not intended, or run --clean-sound-hooks to reset."
+    fi
+}
+
+do_stop_sound_hook_dry() {
+    stop_sound_active || return 0
+    echo "Sound hook (Stop):"
+    info "  + settings/hooks.Stop ($(uname -s) auto-detected)"
     echo ""
+}
+
+do_notification_sound_hook_dry() {
+    notification_sound_active || return 0
+    echo "Sound hook (Notification):"
+    info "  + settings/hooks.Notification ($(uname -s) auto-detected)"
+    echo ""
+}
+
+# --clean-sound-hooks action — strip every sound hook entry from settings.json.
+# Recognises afplay (macOS), paplay (Linux), [console]::beep / powershell beep
+# (WSL + Windows). Leaves non-sound hooks (gost-validation, user customs) alone.
+do_clean_sound_hooks() {
+    if [[ "$TARGET" != "claude" ]]; then
+        info "clean-sound-hooks: no-op for codex (Codex CLI has no hooks)"
+        return 0
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        err "python3 not found — cannot clean sound hooks"
+        exit 1
+    fi
+    local settings="$BASE/settings.json"
+    if [[ ! -f "$settings" ]]; then
+        info "no settings.json at $settings — nothing to clean"
+        return 0
+    fi
+    local removed
+    if ! removed=$(python3 "$SCRIPT_DIR/scripts/clean-sound-hooks.py" "$settings"); then
+        err "clean-sound-hooks failed"
+        exit 1
+    fi
+    if [[ "$removed" -eq 0 ]]; then
+        info "no sound hook entries found in $settings"
+    else
+        log "removed $removed sound hook entr$( [[ "$removed" -eq 1 ]] && echo y || echo ies ) from $settings"
+    fi
 }
 
 # --- Thinking-summaries (claude target only, opt-in) ---
@@ -769,9 +846,16 @@ do_install() {
         do_claude_md
     fi
 
-    if sound_hooks_active; then
+    warn_sound_overlap
+
+    if stop_sound_active; then
         echo ""
-        do_sound_hooks
+        do_stop_sound_hook
+    fi
+
+    if notification_sound_active; then
+        echo ""
+        do_notification_sound_hook
     fi
 
     if thinking_summaries_active; then
@@ -934,7 +1018,9 @@ do_dry() {
     do_attribution_dry
     do_config_defaults_dry
     do_claude_md_dry
-    do_sound_hooks_dry
+    warn_sound_overlap
+    do_stop_sound_hook_dry
+    do_notification_sound_hook_dry
     do_thinking_summaries_dry
     do_gost_validation_dry
     codex_skip_notice
@@ -1103,10 +1189,11 @@ do_update() {
 # --- Main ---
 
 case "$ACTION" in
-    install)   do_install ;;
-    dry)       do_dry ;;
-    diff)      do_diff ;;
-    pull)      do_pull ;;
-    update)    do_update ;;
-    uninstall) do_uninstall ;;
+    install)            do_install ;;
+    dry)                do_dry ;;
+    diff)               do_diff ;;
+    pull)               do_pull ;;
+    update)             do_update ;;
+    uninstall)          do_uninstall ;;
+    clean-sound-hooks)  do_clean_sound_hooks ;;
 esac

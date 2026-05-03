@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-05-03
+
+### Changed
+- **`--with-sound-hooks` / `-WithSoundHooks` now installs only the `Stop` sound hook**, not `Stop` + `Notification` together. Previously the flag merged both events, which produced two beeps in sequence at the end of every chat (`Stop` fires when Claude finishes a turn, then `Notification` fires for "waiting for input"). Now installs only `Stop` — single, unambiguous "Claude finished" cue. **BC NOTE:** users on ≤0.11 with the old behavior already merged into `~/.claude/settings.json` will keep hearing both beeps until they run `--clean-sound-hooks` (see Added) — re-running `--with-sound-hooks` does **not** strip the previously-merged `Notification` entry.
+
+### Added
+- **`--with-notification-sound` / `-WithNotificationSound` opt-in flag.** Installs only the `Notification` sound hook (`afplay Glass.aiff` on macOS, `paplay` on Linux, `[console]::beep(660,250)` on Windows native, `powershell.exe ... beep` on WSL). Used alone, it fires when Claude is waiting for input or requests a permission. Used together with `--with-sound-hooks`, both install — the installer prints a warning that two beeps may fire in sequence on Stop. Independent flag, set-union with existing entries.
+- **`--clean-sound-hooks` / `-CleanSoundHooks` action.** New install-script action (mutually exclusive with `--install` / `--update` / `--uninstall`) that strips every sound-hook entry from `hooks.Stop` and `hooks.Notification` in `~/.claude/settings.json`. Recognises `afplay`, `paplay`, `[console]::beep`, `powershell.exe ... beep` via case-insensitive regex. **Non-sound hooks are preserved** — `gost-report` validation, user-custom hooks, anything else stays put. Drops empty wrappers, drops empty event lists, drops the top-level `hooks` object if it ends up empty. Atomic rewrite via `tempfile` + `os.replace`. Bash side delegates to `scripts/clean-sound-hooks.py`; PowerShell side reimplements natively (no Python dependency on Windows).
+
 ## [0.11.0] - 2026-05-03
 
 ### Added

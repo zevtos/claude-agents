@@ -18,7 +18,9 @@ bash install.sh --update              # git pull --ff-only, then install (alias 
 bash install.sh --uninstall           # remove installed files (target-scoped)
 bash update.sh                        # canonical update entry point (forwards to install.sh --update)
 bash install.sh --no-claude-md        # skip baseline CLAUDE.md (default: install-if-missing)
-bash install.sh --with-sound-hooks    # opt-in: Stop+Notification sound hooks (OS auto-detect)
+bash install.sh --with-sound-hooks    # opt-in: Stop sound hook only (one beep per turn)
+bash install.sh --with-notification-sound  # opt-in: Notification sound hook only
+bash install.sh --clean-sound-hooks   # strip all sound hooks (Stop+Notification) from settings.json
 bash install.sh --with-thinking-summaries  # opt-in: showThinkingSummaries=true
 bash install.sh --model-profile opus  # all agents on opus (default: mixed; persisted to settings.json)
 bash scripts/build-skills.sh          # package every skills/<name>/ into dist/<name>.zip
