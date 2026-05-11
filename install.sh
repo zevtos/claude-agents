@@ -15,6 +15,7 @@ set -euo pipefail
 #   bash install.sh --no-attribution-fix  # skip Co-Authored-By suppression layer
 #   bash install.sh --no-config-defaults  # skip $schema + secret deny-list
 #   bash install.sh --no-gost-validation  # skip gost-report Stop-hook validator
+#   bash install.sh --skills-only         # copy only skills/* (skip agents, commands, hooks)
 #   bash install.sh --with-sound-hooks         # opt-in: Stop sound hook only
 #   bash install.sh --with-notification-sound  # opt-in: Notification sound hook only
 #   bash install.sh --model-profile opus  # all agents on opus (default: mixed)
@@ -99,6 +100,7 @@ SOUND_HOOKS=0
 NOTIFICATION_SOUND=0
 THINKING_SUMMARIES=0
 GOST_VALIDATION=1
+SKILLS_ONLY=0
 MODEL_PROFILE_FLAG=""  # empty = no CLI flag; resolved later from settings.json or default
 
 while [[ $# -gt 0 ]]; do
@@ -115,6 +117,7 @@ while [[ $# -gt 0 ]]; do
         --no-config-defaults) CONFIG_DEFAULTS=0; shift ;;
         --no-claude-md) CLAUDE_MD=0; shift ;;
         --no-gost-validation) GOST_VALIDATION=0; shift ;;
+        --skills-only) SKILLS_ONLY=1; shift ;;
         --with-sound-hooks) SOUND_HOOKS=1; shift ;;
         --with-notification-sound) NOTIFICATION_SOUND=1; shift ;;
         --with-thinking-summaries) THINKING_SUMMARIES=1; shift ;;
@@ -165,6 +168,12 @@ Options:
                             On by default for --target claude — invisible to the model
                             in normal flow, fires only when the generated .docx fails
                             ГОСТ checks. Off by default for codex (Codex has no hooks).
+  --skills-only             Copy only skills/* — skip agents, commands, and every
+                            settings.json / hook layer (attribution, config-defaults,
+                            CLAUDE.md baseline, sound hooks, thinking summaries,
+                            gost-validation). Works with both --target claude and
+                            --target codex. Composes with --dry / --diff / --pull /
+                            --uninstall, scoping each action to skills only.
   --with-sound-hooks        Add a Stop sound hook (one beep when Claude finishes a turn).
                             OS auto-detected: afplay/paplay/powershell beep. Off by default —
                             personal preference. Always off for codex.
@@ -213,6 +222,29 @@ case "$TARGET" in
         exit 1
         ;;
 esac
+
+# --skills-only: drop everything except the skills copy. We null out the agent +
+# command destinations (every action already gates on `[[ -n "$X_DST" ]]`) and
+# turn off every feature-flag layer. Same effect under --target codex (where
+# agents/commands are already null) — the flag just additionally suppresses
+# settings.json layers if a user opted those in.
+if [[ "$SKILLS_ONLY" -eq 1 ]]; then
+    AGENTS_DST=""
+    COMMANDS_DST=""
+    ATTRIBUTION_FIX=0
+    CONFIG_DEFAULTS=0
+    CLAUDE_MD=0
+    SOUND_HOOKS=0
+    NOTIFICATION_SOUND=0
+    THINKING_SUMMARIES=0
+    GOST_VALIDATION=0
+fi
+
+skills_only_notice() {
+    if [[ "$SKILLS_ONLY" -eq 1 && "$TARGET" == "claude" ]]; then
+        warn "--skills-only — skipped agents/, commands/, and all settings.json layers"
+    fi
+}
 
 codex_skip_notice() {
     if [[ "$TARGET" == "codex" ]]; then
@@ -870,14 +902,16 @@ do_install() {
 
     # Persist profile only when user explicitly passed the flag — implicit defaults
     # don't pollute settings.json. Re-runs without the flag read it back via
-    # read_persisted_profile.
-    if [[ -n "$MODEL_PROFILE_FLAG" && "$TARGET" == "claude" ]]; then
+    # read_persisted_profile. Skipped under --skills-only: no agents are touched,
+    # so the profile choice is meaningless for this run.
+    if [[ -n "$MODEL_PROFILE_FLAG" && "$TARGET" == "claude" && "$SKILLS_ONLY" -eq 0 ]]; then
         persist_profile "$MODEL_PROFILE"
     fi
 
     echo ""
     info "Installed $count items to $BASE"
     codex_skip_notice
+    skills_only_notice
     log "agentpipe v$VERSION"
 }
 
@@ -1024,6 +1058,7 @@ do_dry() {
     do_thinking_summaries_dry
     do_gost_validation_dry
     codex_skip_notice
+    skills_only_notice
 }
 
 do_diff() {

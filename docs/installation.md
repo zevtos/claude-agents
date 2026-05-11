@@ -85,6 +85,7 @@ The skill becomes globally available across all your conversations on that accou
 | No config-defaults | `--no-config-defaults` | `-NoConfigDefaults` | Skip $schema + autoUpdatesChannel + cleanupPeriodDays + spinnerTipsEnabled + permissions.deny |
 | No CLAUDE.md | `--no-claude-md` | `-NoClaudeMd` | Skip neutral CLAUDE.md baseline (default: install-if-missing) |
 | No gost-validation | `--no-gost-validation` | `-NoGostValidation` | Skip gost-report Stop-hook validator (default-on for claude target) |
+| Skills only | `--skills-only` | `-SkillsOnly` | Copy only `skills/*` — skip agents, commands, and every `settings.json`/hook layer. Composes with both targets and with `--dry`/`--diff`/`--pull`/`--uninstall` |
 | With sound hooks | `--with-sound-hooks` | `-WithSoundHooks` | Opt-in: Stop sound hook only (one beep when Claude finishes) |
 | With notification sound | `--with-notification-sound` | `-WithNotificationSound` | Opt-in: Notification sound hook only (permission/wait-for-input) |
 | Clean sound hooks | `--clean-sound-hooks` | `-CleanSoundHooks` | Strip every sound hook (Stop+Notification) from `settings.json` |
@@ -98,6 +99,8 @@ All actions respect `--target`. Examples:
 bash install.sh --target codex --dry        # preview Codex install
 bash install.sh --target codex --uninstall  # remove only Codex skills
 bash install.sh --diff                      # diff Claude install (default target)
+bash install.sh --skills-only                # update only skills/* under ~/.claude/
+bash install.sh --target codex --skills-only # update only skills/* under ~/.agents/
 ```
 
 ## Safe Defaults Layer

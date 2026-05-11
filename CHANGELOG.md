@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-05-11
+
+### Added
+- **`--skills-only` / `-SkillsOnly` flag.** Restricts the installer to copying `skills/*` only — agents, commands, and every `settings.json`/hook layer (attribution-fix, config-defaults, CLAUDE.md baseline, sound hooks, thinking summaries, gost-validation) are skipped. Composes with both `--target claude` (skills under `~/.claude/skills/`) and `--target codex` (skills under `~/.agents/skills/`), and with the existing actions: `--dry`, `--diff`, `--pull`, and `--uninstall` all scope to skills under the flag. Useful for fast skill iteration (e.g. updating `gost-report` after editing `scripts/validate.py`) without re-running the full claude-target settings merge. `--model-profile` is silently ignored under `--skills-only` — no agents are touched, so the profile is not persisted to `settings.json`.
+
 ## [0.12.0] - 2026-05-03
 
 ### Changed

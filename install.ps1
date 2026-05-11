@@ -19,6 +19,7 @@
     .\install.ps1 -NoConfigDefaults        # skip $schema + safe defaults + deny list
     .\install.ps1 -NoClaudeMd              # skip neutral CLAUDE.md baseline (install-if-missing)
     .\install.ps1 -NoGostValidation        # skip gost-report Stop-hook validator (default: on)
+    .\install.ps1 -SkillsOnly              # copy only skills/* (skip agents, commands, hooks)
     .\install.ps1 -WithSoundHooks          # opt-in: Stop sound hook only (one beep per turn)
     .\install.ps1 -WithNotificationSound   # opt-in: Notification sound hook only
     .\install.ps1 -WithThinkingSummaries   # opt-in: showThinkingSummaries=true
@@ -38,6 +39,7 @@ param(
     [switch]$NoConfigDefaults,
     [switch]$NoClaudeMd,
     [switch]$NoGostValidation,
+    [switch]$SkillsOnly,
     [switch]$WithSoundHooks,
     [switch]$WithNotificationSound,
     [switch]$WithThinkingSummaries,
@@ -92,6 +94,22 @@ switch ($Target) {
     }
 }
 
+# -SkillsOnly: drop everything except the skills copy. Mirrors install.sh —
+# null out the agent + command destinations (every action gates on those) and
+# turn off every feature-flag layer. Composes with both -Target claude and
+# -Target codex.
+if ($SkillsOnly) {
+    $AgentsDst = $null
+    $CommandsDst = $null
+    $NoAttributionFix = $true
+    $NoConfigDefaults = $true
+    $NoClaudeMd = $true
+    $NoGostValidation = $true
+    $WithSoundHooks = $false
+    $WithNotificationSound = $false
+    $WithThinkingSummaries = $false
+}
+
 function Write-Ok($msg)   { Write-Host "  $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "  $msg" -ForegroundColor Yellow }
 function Write-Info($msg) { Write-Host "  $msg" -ForegroundColor Cyan }
@@ -101,6 +119,12 @@ function Show-CodexSkipNotice {
     if ($Target -eq "codex") {
         Write-Warn "Codex CLI has no custom slash commands - skipped commands/"
         Write-Warn "Codex agents use a different TOML format - skipped agents/. See README for details."
+    }
+}
+
+function Show-SkillsOnlyNotice {
+    if ($SkillsOnly -and $Target -eq "claude") {
+        Write-Warn "-SkillsOnly - skipped agents/, commands/, and all settings.json layers"
     }
 }
 
@@ -798,14 +822,16 @@ function Do-Install {
     }
 
     # Persist profile only when user explicitly passed -ModelProfile — implicit
-    # defaults don't pollute settings.json.
-    if ($Script:ModelProfileFlag -and $Target -eq "claude") {
+    # defaults don't pollute settings.json. Skipped under -SkillsOnly: no agents
+    # are touched, so the profile choice is meaningless for this run.
+    if ($Script:ModelProfileFlag -and $Target -eq "claude" -and -not $SkillsOnly) {
         Persist-Profile $ModelProfile
     }
 
     Write-Host ""
     Write-Info "Installed $count items to $Base"
     Show-CodexSkipNotice
+    Show-SkillsOnlyNotice
     Write-Ok "agentpipe v$($Script:Version)"
 }
 
@@ -946,6 +972,7 @@ function Do-Dry {
     Do-ThinkingSummariesDry
     Do-GostValidationDry
     Show-CodexSkipNotice
+    Show-SkillsOnlyNotice
 }
 
 function Do-Diff {

@@ -18,6 +18,7 @@ bash install.sh --update              # git pull --ff-only, then install (alias 
 bash install.sh --uninstall           # remove installed files (target-scoped)
 bash update.sh                        # canonical update entry point (forwards to install.sh --update)
 bash install.sh --no-claude-md        # skip baseline CLAUDE.md (default: install-if-missing)
+bash install.sh --skills-only         # update only skills/*, skip agents/commands/hooks (works with --target)
 bash install.sh --with-sound-hooks    # opt-in: Stop sound hook only (one beep per turn)
 bash install.sh --with-notification-sound  # opt-in: Notification sound hook only
 bash install.sh --clean-sound-hooks   # strip all sound hooks (Stop+Notification) from settings.json
