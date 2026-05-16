@@ -1,0 +1,20 @@
+# Lightweight tier. Upper bounds keep us off bleeding-edge majors that may
+# break parsers; pikepdf and lxml are explicitly capped because their C
+# dependencies (qpdf, libxml2) have a history of CVEs that warrant a
+# deliberate upgrade rather than a pip-pulled patch.
+pymupdf4llm>=0.0.17,<2.0
+pdfplumber>=0.11.0,<1.0
+pypdf>=4.0.0,<7.0
+pikepdf>=8.15,<11.0
+python-magic>=0.4.27,<1.0
+python-docx>=1.1.0,<2.0
+mammoth>=1.6.0,<2.0
+python-pptx>=0.6.23,<2.0
+openpyxl>=3.1.0,<4.0
+trafilatura>=1.12.0,<3.0
+markdownify>=0.13.0,<2.0
+charset-normalizer>=3.3.0,<4.0
+tiktoken>=0.7.0,<1.0
+# Pin lxml — transitive dep of trafilatura, historically XXE-vulnerable
+# before 4.9. Capping below 6 keeps us on tested majors.
+lxml>=4.9,<6.0

@@ -50,7 +50,7 @@ Vanilla Claude Code already ships agents, commands, and skills — but they're *
 |---|---|---|
 | Agents | meta/utility (`general-purpose`, `Explore`, `Plan`, `claude-code-guide`, `statusline-setup`) — generic helpers | **9 domain specialists** with role-bounded tool access (architect, dba, devops, docs, pm, refactorer, reviewer, security, tester) — e.g. reviewer = Read+Grep only, can't accidentally edit |
 | Slash commands | session/config (`/init`, `/clear`, `/agents`, `/mcp`, `/model`, `/config`, ...) | **15 gated multi-agent workflows** (`/feature`, `/sprint`, `/audit`, `/release`, `/refactor`, ...) with conditional steps and parallel gates |
-| Skills | dev-tooling utilities (`claude-api`, `loop`, `schedule`, `update-config`, ...) — for power-users of Claude Code | **end-user domain skills** (`gost-report` for Russian academic .docx — more on the way) |
+| Skills | dev-tooling utilities (`claude-api`, `loop`, `schedule`, `update-config`, ...) — for power-users of Claude Code | **end-user domain skills** — `gost-report` (Russian academic .docx), `doc2kb` (heterogeneous document corpus → LLM-optimized knowledge base) |
 | Per-agent model selection | global / manual | **auto** — opus for high-reasoning roles (architect, security), sonnet for the rest. Override at install: `--model-profile opus` / `sonnet` / `mixed` (default), persisted across updates. |
 | Multi-vendor distribution | Claude Code only | **same skills** in Codex CLI via `bash install.sh --target codex` |
 | Skill release packaging | n/a (manual) | `bash scripts/build-skills.sh` + GH Actions auto-attaches zips on tag push |
@@ -98,6 +98,7 @@ Vanilla Claude Code already ships agents, commands, and skills — but they're *
 | Skill | Purpose | Triggers on |
 |-------|---------|-------------|
 | `gost-report` | Generate Russian academic reports (`.docx`) formatted to GOST 7.32 — лабораторные, отчёты по практике, курсовые, ВКР. Two built-in profiles (`ITMO_PROFILE`, `GOST_PROFILE`) plus `UniversityProfile` for any other vuz. | Russian-language asks for «лабораторную», «отчёт по ГОСТ», «курсовую», «ИТМО», etc. |
+| `doc2kb` | Convert a folder of mixed documents (PDF text-layer, DOCX, PPTX with speaker notes, MD, TXT, HTML) into an LLM-optimized knowledge base — per-source Markdown + `manifest.json` + `INDEX.md` + `AGENTS.md`. Two-session pattern: extraction session prepares the kb, a second session ingests it. Local-first, no paid APIs. | «обработай папку с документами», «сделай базу знаний из папки», "build a knowledge base", "feed files to Claude", "RAG prep", "doc corpus". |
 
 Each release attaches every skill as a standalone `.zip` to the GitHub release page. Two install paths depending on where you use Claude:
 
